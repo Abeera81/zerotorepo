@@ -1,0 +1,426 @@
+# ZeroToRepo — Technical Research & Feasibility Analysis
+
+> **Pitch:** "Your idea has a GitHub repo before your coffee cools."
+> **Flow:** Notion Trigger → Brave Search (Competitors) → Groq LLM (Gap Analysis + Roadmap) → GitHub Repo + Issues → Notion Investor Brief
+
+---
+
+## 1. Executive Summary
+
+ZeroToRepo is a Node.js CLI tool that automates the full journey from a project idea
+(captured in a Notion database) to a fully scaffolded GitHub repository—complete with
+competitive research, a gap-aware roadmap, labeled GitHub Issues, and a synthesized
+investor brief written back to Notion.
+
+The system is triggered by a single checkbox toggle in Notion. From that point forward,
+it autonomously: (1) researches competitors via Brave Search, (2) generates a technical
+roadmap via Groq/Llama-3-70b, (3) scaffolds a GitHub repo with README and package.json
+using ghost commits (no local clone), (4) creates GitHub Issues from the roadmap, and
+(5) writes an investor-ready project brief back to Notion.
+
+This document covers API feasibility, rate limits, implementation patterns, prompt
+templates, and a demo fallback strategy—all scoped for a 48-hour hackathon with a
+$0 budget (free tiers only).
+
+**Key Finding:** All four APIs (Notion, Groq, Brave, GitHub) operate well within their
+free-tier limits for our use case. The primary risk is LLM output reliability, mitigated
+by JSON-mode enforcement and retry logic.
+
+---
+
+## 2. Architecture Decision: MCP + Direct API Hybrid
+
+ZeroToRepo employs a hybrid architecture that uses MCP (Model Context Protocol) servers
+during DEVELOPMENT for introspection and interactive testing, but switches to DIRECT API
+calls in the production script for reliability, speed, and deterministic execution.
+
+### Why Hybrid?
+
+MCP servers are excellent for exploratory work—querying database schemas, testing API
+calls interactively, and validating assumptions in real time through Copilot or Claude.
+However, for a production pipeline that must execute reliably in sequence, direct SDK
+calls provide better error handling, predictable latency, and no dependency on an MCP
+host process.
+
+### MCP Usage (Development Only)
+
+- **Notion MCP Server:** Used inside Copilot/Claude to query the Notion database schema,
+  validate property names and types, test page updates interactively, and verify filter
+  syntax before hardcoding it into the production script.
+
+- **Brave Search MCP Server:** Used to prototype search query patterns, evaluate result
+  quality for different query formulations, and determine which fields (title, description,
+  URL) are most useful for gap analysis before hardcoding the query logic.
+
+### Production Stack (Direct API Calls)
+
+- **@notionhq/client** — Official Notion SDK for polling, reading, and updating pages.
+- **Octokit** — GitHub REST API SDK for repo creation, ghost commits, and issue creation.
+- **groq-sdk** — Groq API client for Llama-3-70b inference with JSON mode.
+- **node-fetch (built-in)** — Direct HTTP requests to the Brave Search API.
+
+This separation ensures the demo runs independently of any MCP infrastructure—just
+Node.js and API keys.
+
+---
+
+## 3. API Feasibility & Rate Limits
+
+All services used are within their free tiers. The table below summarizes limits,
+expected usage per run, and risk assessment.
+
+| Service              | Free Tier Limits              | Latency  | Per-Run Usage   | Risk Level | Notes                                                    |
+|:---------------------|:------------------------------|:---------|:----------------|:-----------|:---------------------------------------------------------|
+| Notion API           | 3 req/sec                     | ~200ms   | ~10-15 requests | Low        | Polling at 0.2 req/sec is well within limits             |
+| Groq (Llama-3-70b)  | 30 req/min, 6000 tokens/min   | ~1-3s    | 2-3 calls       | Medium     | Fits within limits; token budget ~2000/call              |
+| Brave Search API     | 2000 queries/month, 1 req/sec | ~500ms   | 1-2 queries     | Low        | Minimal usage; monthly cap is not a concern              |
+| GitHub API (PAT)     | 5000 req/hr                   | ~300ms   | ~10-15 calls    | Very Low   | Repo create + blobs + tree + commit + issues             |
+
+### Calculated Worst Case Per Run
+
+- Notion: 15 requests × 0.33s avg = ~5s total, well under 3 req/sec sustained
+- Groq: 3 requests × ~2s avg = ~6s total, well under 30 req/min
+- Brave: 2 requests × 0.5s avg = ~1s total, trivial against 2000/month
+- GitHub: 15 requests × 0.3s avg = ~4.5s total, trivial against 5000/hr
+
+**Total estimated pipeline time: 30-60 seconds end-to-end** (including LLM generation).
+
+---
+
+## 4. Key Implementation Patterns
+
+### 4.1 Notion Polling & State Machine
+
+The core loop polls Notion every 5 seconds for pages matching the trigger condition.
+
+**Trigger Condition (Filter):**
+- Property "Trigger" (checkbox) == true
+- Property "Status" (select) == "Idea"
+- Property "GitHub URL" (url) is empty
+
+**State Machine Transitions:**
+```
+  Idea → Researching → Building → Scaffolded → Complete
+                                                  ↘ Error (on any failure)
+```
+
+Each state transition is a PATCH call to the Notion page, updating the "Status" select
+property. This provides real-time visual feedback in the Notion UI during the demo—the
+status column updates live as each phase completes.
+
+**Idempotency Guard:**
+Before processing any triggered page, check whether the "GitHub URL" property is already
+populated. If it is, skip the page entirely. This prevents duplicate processing on
+re-runs or if the polling loop picks up the same page twice.
+
+**Polling Implementation Notes:**
+- Use setInterval at 5000ms (0.2 req/sec, well under Notion's 3 req/sec limit)
+- Filter using Notion's compound filter API to push filtering server-side
+- On error, set Status to "Error" and continue polling for other pages
+- Graceful shutdown on SIGINT to avoid orphaned polling loops
+
+### 4.2 Ghost Commits (No Local Clone)
+
+Instead of cloning a repo locally and committing files, ZeroToRepo uses the GitHub
+Data API (also called the Git Database API) to create commits entirely through REST
+calls. This is called "ghost committing."
+
+**The Four-Step Process:**
+
+1. **Create Blobs** — Upload each file's content as a blob object.
+   - Octokit method: `rest.git.createBlob({ owner, repo, content, encoding: "utf-8" })`
+   - Returns a SHA for each blob.
+
+2. **Create Tree** — Assemble a tree object that maps file paths to blob SHAs.
+   - Octokit method: `rest.git.createTree({ owner, repo, tree: [...], base_tree })`
+   - The tree array contains entries like: `{ path: "README.md", mode: "100644", type: "blob", sha }`
+
+3. **Create Commit** — Create a commit object pointing to the new tree.
+   - Octokit method: `rest.git.createCommit({ owner, repo, message, tree: treeSha, parents: [parentSha] })`
+   - For initial commits, parents array is empty.
+
+4. **Update Ref** — Point the branch (main) to the new commit.
+   - Octokit method: `rest.git.updateRef({ owner, repo, ref: "heads/main", sha: commitSha })`
+
+**Advantages for Hackathon:**
+- No git binary required on the host machine
+- No disk I/O or temporary directories
+- Multiple files committed atomically in a single commit
+- Works in serverless/containerized environments
+- Faster than clone → write → commit → push for small file counts
+
+**Files Created in Initial Commit:**
+- README.md (generated from project description + gap analysis)
+- package.json (templated with project name, description, dependencies)
+- .gitignore (standard Node.js template)
+- docs/ROADMAP.md (generated roadmap in Markdown format)
+
+### 4.3 Structured LLM Output
+
+Groq's Llama-3-70b model is used for three distinct generation tasks: gap analysis,
+roadmap generation, and investor brief synthesis. For the first two, structured JSON
+output is critical.
+
+**JSON Mode Strategy:**
+- Set `response_format: { type: "json_object" }` in the Groq API call
+- System prompt explicitly defines the JSON schema expected
+- User prompt provides the project context and data
+
+**Validation Pipeline:**
+1. Call Groq with JSON mode enabled
+2. Parse response with `JSON.parse()` wrapped in try/catch
+3. Validate that required fields exist (title, description, priority, label)
+4. If parsing fails: retry ONCE with a stricter system prompt that includes an example
+5. If retry fails: fall back to a hardcoded default roadmap (3 generic tasks)
+
+**Token Budget Planning:**
+- Gap analysis: ~500 input tokens + ~800 output tokens = ~1300 total
+- Roadmap: ~800 input tokens + ~1200 output tokens = ~2000 total
+- Investor brief: ~1000 input tokens + ~1500 output tokens = ~2500 total
+- Total per run: ~5800 tokens (under the 6000 tokens/min free tier limit)
+
+**Important:** Space the three Groq calls at least 5 seconds apart to stay safely
+within the rate limit window, especially since token counting is approximate.
+
+### 4.4 Brave Search → Gap Analysis Pipeline
+
+Brave Search provides the competitive intelligence that makes ZeroToRepo's output
+contextually relevant rather than generic.
+
+**Query Patterns:**
+- Primary: `"{projectName}" open source alternatives 2025`
+- Secondary: `"{projectName}" competitors features comparison`
+
+**Processing Pipeline:**
+1. Call Brave Search API with the primary query (max 10 results)
+2. Extract from each result: title, description, URL
+3. Format as a numbered list for the LLM prompt
+4. Feed to Groq with gap analysis prompt (see Section 8)
+5. Parse the Markdown bullet points returned by Groq
+6. Write gap analysis to a Notion sub-page under the project
+
+**Result Filtering:**
+- Take the top 5 results (Brave's relevance ranking is sufficient)
+- Skip results where description is null or empty
+- Truncate descriptions to 200 characters to conserve token budget
+
+---
+
+## 5. The 48-Hour Build Map
+
+| Phase                   | Hours   | Deliverable                                                        |
+|:------------------------|:--------|:-------------------------------------------------------------------|
+| Setup & Config          | 0-3     | Node.js project initialized, .env configured, Notion DB created    |
+|                         |         | with correct schema, all 4 API keys verified with test calls       |
+| Notion Polling Loop     | 3-6     | State machine detects checkbox trigger, updates Status property     |
+|                         |         | through all states, handles errors gracefully                      |
+| Brave + Groq Research   | 6-10    | Competitive gap analysis generated from search results, written     |
+|                         |         | to Notion sub-page as formatted Markdown                           |
+| GitHub Scaffolder       | 10-14   | Repo created via Octokit, README + package.json + .gitignore       |
+|                         |         | committed via Ghost Commits, GitHub URL written back to Notion     |
+| Roadmap → Issues        | 14-18   | LLM-generated roadmap tasks become labeled GitHub Issues,          |
+|                         |         | roadmap summary written to docs/ROADMAP.md in the repo             |
+| Investor Brief          | 18-22   | Synthesis document combining research, roadmap, and tech stack     |
+|                         |         | written as a Notion sub-page with professional formatting          |
+| Integration & Polish    | 22-30   | End-to-end flow working, error handling hardened, clack CLI output  |
+|                         |         | showing real-time progress with spinners and status messages       |
+| Demo Prep              | 30-36   | Demo script rehearsed, backup video recorded, edge cases tested,   |
+|                         |         | mock mode verified, presentation slides drafted                    |
+| Buffer                 | 36-48   | Sleep, bug fixes, presentation polish, contingency time            |
+
+**Critical Path:** Phases 1-4 (Setup through GitHub Scaffolder) are on the critical
+path. If any of these slip, the demo is at risk. Phases 5-6 (Roadmap Issues and
+Investor Brief) are high-value but can be simplified if time is short.
+
+---
+
+## 6. Demo Fallback Strategy
+
+Live demos with external APIs are inherently risky. The following layered strategy
+ensures a successful presentation regardless of conditions.
+
+### Layer 1: Pre-Cached Responses
+Save one complete successful run's API responses to JSON files in a `fixtures/` directory:
+- `fixtures/brave-search-results.json`
+- `fixtures/groq-gap-analysis.json`
+- `fixtures/groq-roadmap.json`
+- `fixtures/groq-investor-brief.json`
+
+### Layer 2: Mock Mode (--mock flag)
+Add a `--mock` CLI flag that reads from the cached JSON files instead of calling live
+APIs. The Notion and GitHub calls still execute live (they create visible artifacts),
+but the slow/unreliable LLM and search calls are mocked. This dramatically reduces
+demo time and eliminates the two highest-risk API dependencies.
+
+### Layer 3: Pre-Scaffolded Backup
+Have one fully completed project ready to show. If the live demo fails entirely, walk
+through the already-created Notion pages, GitHub repo, and Issues as if they were
+just generated. The audience sees the same output either way.
+
+### Layer 4: Video Backup
+Record a successful full run the night before the presentation. If live demo and
+pre-scaffold both fail, play the video with narration. A smooth recorded demo is
+better than a struggling live one.
+
+### Layer 5: Wi-Fi Independence
+- Test the entire flow using a mobile hotspot before the presentation
+- Have the hotspot ready as immediate fallback if venue Wi-Fi fails
+- The mock mode (Layer 2) works even fully offline for the LLM/search portions
+
+---
+
+## 7. Key Dependencies & Versions
+
+| Package            | Version   | Purpose                                        |
+|:-------------------|:----------|:-----------------------------------------------|
+| @notionhq/client   | ^2.2.x    | Official Notion API SDK — polling, reads, writes |
+| octokit            | ^4.x      | GitHub REST API SDK — repos, commits, issues    |
+| groq-sdk           | ^0.x      | Groq LLM API client — Llama-3-70b inference    |
+| @clack/prompts     | ^0.7.x    | Beautiful CLI output — spinners, progress, logs |
+| dotenv             | ^16.x     | Environment variable loading from .env file     |
+| node-fetch         | built-in  | HTTP requests for Brave Search API (Node 18+)  |
+
+### Dev Dependencies
+| Package            | Version   | Purpose                                        |
+|:-------------------|:----------|:-----------------------------------------------|
+| @types/node        | ^20.x     | TypeScript type definitions (if using TS)       |
+| nodemon            | ^3.x      | Auto-restart during development                 |
+
+### Runtime Requirements
+- Node.js >= 18.0.0 (for built-in fetch and native ESM)
+- No database required (Notion IS the database)
+- No Docker required (single-process CLI tool)
+
+---
+
+## 8. Prompt Templates
+
+### 8.1 Research Prompt — Gap Analysis (Groq)
+
+```
+System: You are a senior market analyst specializing in developer tools and open source
+software. You provide specific, actionable competitive analysis.
+
+User: Given these search results about competitors to "{projectName}", identify 3-5
+specific technical gaps or missing features that a new project could address. Focus on:
+- Features that competitors lack or implement poorly
+- Integration opportunities that no one has addressed
+- Developer experience improvements that are missing
+- Underserved use cases within the problem space
+
+Be specific and actionable — each gap should be something a developer could build.
+Format as Markdown bullet points with bold gap titles.
+
+Search Results:
+{braveResults}
+```
+
+### 8.2 Roadmap Prompt — Task Generation (Groq)
+
+```
+System: You are a technical project manager who creates actionable development roadmaps.
+You must respond with ONLY a valid JSON array. No markdown, no explanation, no preamble.
+
+Each object in the array must have exactly these fields:
+- "title": string (concise, action-oriented, starts with a verb)
+- "description": string (1-2 sentences with specific technical detail)
+- "priority": one of "P0-Critical", "P1-Important", "P2-Nice-to-Have"
+- "label": one of "feature", "research", "infrastructure", "documentation"
+
+User: Create a development roadmap for "{projectName}": {description}.
+
+Consider these competitive gaps when prioritizing:
+{gaps}
+
+Generate 5-10 tasks ordered by priority. Ensure at least:
+- 2 infrastructure tasks (project setup, CI/CD, testing)
+- 3 feature tasks (core functionality)
+- 1 documentation task
+
+Respond with ONLY the JSON array.
+```
+
+### 8.3 Investor Brief Prompt — Synthesis (Groq)
+
+```
+System: You are a startup advisor who writes compelling, concise project briefs for
+technical founders. Your writing is professional but not corporate — clear, direct,
+and focused on impact.
+
+User: Synthesize the following information into a professional project brief:
+
+Project: {projectName}
+Description: {description}
+Market Analysis: {gaps}
+Development Roadmap: {roadmapSummary}
+Tech Stack: Node.js, {techStack}
+GitHub Repository: {repoUrl}
+
+Structure the brief with these sections:
+1. **Executive Summary** — 2-3 sentences on what this project does and why it matters
+2. **Problem** — The specific pain point being addressed
+3. **Market Opportunity** — Based on the competitive gaps identified
+4. **Solution** — How this project addresses the gaps uniquely
+5. **Roadmap Highlights** — Top 3-5 milestones from the development plan
+6. **Technical Approach** — Architecture and key technical decisions
+
+Keep each section to 2-4 sentences. Total length: ~500 words. Format as Markdown.
+```
+
+---
+
+## 9. Risk Register
+
+| Risk                         | Likelihood | Impact   | Mitigation                                                                |
+|:-----------------------------|:-----------|:---------|:--------------------------------------------------------------------------|
+| Groq rate limit hit          | Medium     | High     | Limit to 3 LLM calls per project; add 5s delay between calls;            |
+|                              |            |          | implement exponential backoff with max 2 retries                         |
+| LLM returns invalid JSON     | Medium     | Medium   | Wrap JSON.parse in try/catch; retry once with stricter prompt             |
+|                              |            |          | including an example; fall back to hardcoded default tasks                |
+| Notion API latency spike    | Low        | Medium   | Set 10s timeout on all Notion calls; update Status to "Error" on          |
+|                              |            |          | failure; allow manual re-trigger by resetting Status to "Idea"           |
+| GitHub API auth failure      | Low        | Critical | Validate PAT permissions on startup before entering poll loop;            |
+|                              |            |          | fail fast with clear error message listing required scopes               |
+| Wi-Fi failure during demo    | Medium     | Critical | Pre-record backup video; test with mobile hotspot; --mock flag            |
+|                              |            |          | eliminates dependency on Brave and Groq APIs                             |
+| Notion DB schema mismatch    | Medium     | High     | Use Notion MCP during development to validate schema interactively;       |
+|                              |            |          | add startup validation that checks all required properties exist          |
+| Brave Search returns no      | Low        | Low      | Fall back to a generic gap analysis prompt that doesn't require           |
+| relevant results             |            |          | search data; use project description alone for LLM context               |
+| GitHub repo name collision   | Low        | Low      | Slugify project name; append random 4-char suffix if 422 error;          |
+|                              |            |          | check existence before creation                                          |
+| Token limit exceeded on      | Low        | Medium   | Truncate input aggressively: max 200 chars per search result,             |
+| Groq call                   |            |          | max 5 results, max 100 chars per roadmap task in synthesis prompt        |
+
+---
+
+## 10. References
+
+- Notion API Documentation: https://developers.notion.com/reference
+  - Database query filters: https://developers.notion.com/reference/post-database-query-filter
+  - Update page properties: https://developers.notion.com/reference/patch-page
+
+- GitHub REST API: https://docs.github.com/en/rest
+  - Create repository: https://docs.github.com/en/rest/repos/repos#create-a-repository-for-the-authenticated-user
+  - Git Database API (blobs, trees, commits): https://docs.github.com/en/rest/git
+
+- Groq API Documentation: https://console.groq.com/docs
+  - JSON mode: https://console.groq.com/docs/text-chat#json-mode
+  - Rate limits: https://console.groq.com/docs/rate-limits
+
+- Brave Search API: https://api.search.brave.com/app/documentation
+  - Web search endpoint: https://api.search.brave.com/app/documentation/web-search/get-api
+
+- MCP Specification: https://modelcontextprotocol.io
+  - Overview of Model Context Protocol for tool-augmented LLM workflows
+
+- Octokit.js: https://github.com/octokit/octokit.js
+  - REST API plugin: https://github.com/octokit/plugin-rest-endpoint-methods.js
+
+- @clack/prompts: https://github.com/bombshell-dev/clack
+  - CLI UI components: spinners, progress bars, select menus, confirmations
+
+---
+
+*Document prepared for the ZeroToRepo hackathon project.*
+*Last updated: 2025*
