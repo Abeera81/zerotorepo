@@ -1,5 +1,5 @@
 const notion = require('./notion');
-const { searchBrave, analyzeGaps, formatGapsMarkdown } = require('./research');
+const { deepSearch, analyzeGaps, generateStartupName, formatResearchMarkdown } = require('./research');
 const { createRepo, ghostCommit, generateScaffoldFiles, createIssues } = require('./scaffold');
 const { generateRoadmap } = require('./roadmap');
 const { synthesizeBrief } = require('./brief');
@@ -46,32 +46,44 @@ async function processIdea(page, { onPhaseStart, onPhaseEnd, useMock = false } =
 
   const mockDelay = () => useMock ? sleep(1500) : Promise.resolve();
 
-  // Phase 1: Research
+  // Phase 1: Research (deep multi-query + name generation)
   onPhaseStart?.('Research');
   if (!useMock) await notion.updateStatus(pageId, 'Researching');
-  const research = await runPhase('Research', async () => {
-    if (useMock) { await mockDelay(); return getMockResearch(projectName); }
+  const { research, startupName } = await runPhase('Research', async () => {
+    if (useMock) { await mockDelay(); return { research: getMockResearch(projectName), startupName: getMockName(projectName) }; }
 
     // Idempotency: skip if research sub-page already exists
     if (await notion.subPageExists(pageId, `Research — ${projectName}`)) {
       onPhaseEnd?.('Research', 'skipped (already exists)');
-      return { gaps: [], summary: 'Research already completed.' };
+      return {
+        research: { gaps: [], summary: 'Research already completed.' },
+        startupName: { name: projectName, tagline: description },
+      };
     }
 
-    const results1 = await searchBrave(`${projectName} competitors`);
-    const results2 = await searchBrave(`${projectName} open source alternatives`);
-    const gapData = await analyzeGaps(projectName, [...results1, ...results2]);
-    const markdown = formatGapsMarkdown(projectName, gapData);
+    // Deep search: 5 queries across different angles
+    const searchSets = await deepSearch(projectName, description);
+
+    // Deep analysis: competitors, gaps, market insights, tech recommendations
+    const gapData = await analyzeGaps(projectName, description, searchSets);
+
+    // Generate a catchy startup name from the research
+    const nameData = await generateStartupName(projectName, description, gapData);
+
+    // Write rich research to Notion
+    const markdown = formatResearchMarkdown(projectName, nameData, gapData);
     await notion.writeSubPage(pageId, `Research — ${projectName}`, markdown);
-    return gapData;
+
+    return { research: gapData, startupName: nameData };
   });
   onPhaseEnd?.('Research', 'done');
 
-  // Phase 2: Scaffold
+  // Phase 2: Scaffold (uses startup name + rich research for README)
   onPhaseStart?.('Scaffold');
   if (!useMock) await notion.updateStatus(pageId, 'Scaffolding');
+  const displayName = startupName?.name || projectName;
   const repo = await runPhase('Scaffold', async () => {
-    if (useMock) { await mockDelay(); return getMockScaffold(projectName); }
+    if (useMock) { await mockDelay(); return getMockScaffold(displayName); }
 
     // Idempotency: skip if GitHub URL already set
     const existingUrl = page.properties['GitHub URL']?.url;
@@ -81,40 +93,39 @@ async function processIdea(page, { onPhaseStart, onPhaseEnd, useMock = false } =
       return { repoUrl: existingUrl, owner: parts[0], repo: parts[1] };
     }
 
-    const repoInfo = await createRepo(projectName);
-    const gapSummary = research.summary || formatGapsMarkdown(projectName, research);
-    const files = generateScaffoldFiles(projectName, description, gapSummary);
+    const repoInfo = await createRepo(displayName);
+    const files = generateScaffoldFiles(displayName, description, research, startupName);
     await ghostCommit(repoInfo.owner, repoInfo.repo, files);
     await notion.setGitHubUrl(pageId, repoInfo.repoUrl);
     return repoInfo;
   });
   onPhaseEnd?.('Scaffold', 'done');
 
-  // Phase 3: Roadmap → Issues
+  // Phase 3: Roadmap → Issues (uses richer context, excludes boilerplate tasks)
   onPhaseStart?.('Roadmap');
   const roadmap = await runPhase('Roadmap', async () => {
-    if (useMock) { await mockDelay(); return getMockRoadmap(projectName); }
+    if (useMock) { await mockDelay(); return getMockRoadmap(displayName); }
 
-    const { tasks } = await generateRoadmap(projectName, research);
+    const { tasks } = await generateRoadmap(displayName, description, research);
     const issueUrls = await createIssues(repo.owner, repo.repo, tasks);
     return { tasks, issueUrls };
   });
   onPhaseEnd?.('Roadmap', 'done');
 
-  // Phase 4: Brief
+  // Phase 4: Brief (uses startup name + richer research)
   onPhaseStart?.('Brief');
   if (!useMock) await notion.updateStatus(pageId, 'Generating Brief');
   const brief = await runPhase('Brief', async () => {
-    if (useMock) { await mockDelay(); return getMockBrief(projectName); }
+    if (useMock) { await mockDelay(); return getMockBrief(displayName); }
 
     // Idempotency: skip if brief sub-page already exists
-    if (await notion.subPageExists(pageId, `Brief — ${projectName}`)) {
+    if (await notion.subPageExists(pageId, `Brief — ${displayName}`)) {
       onPhaseEnd?.('Brief', 'skipped (already exists)');
       return { briefContent: 'Brief already exists.' };
     }
 
-    const { briefContent } = await synthesizeBrief(projectName, research, roadmap);
-    await notion.writeSubPage(pageId, `Brief — ${projectName}`, briefContent);
+    const { briefContent } = await synthesizeBrief(displayName, startupName, description, research, roadmap);
+    await notion.writeSubPage(pageId, `Brief — ${displayName}`, briefContent);
     return { briefContent };
   });
   onPhaseEnd?.('Brief', 'done');
@@ -125,19 +136,39 @@ async function processIdea(page, { onPhaseStart, onPhaseEnd, useMock = false } =
     await notion.resetTrigger(pageId);
   }
 
-  return { projectName, repoUrl: repo.repoUrl, research, roadmap, brief };
+  return { projectName: displayName, repoUrl: repo.repoUrl, research, startupName, roadmap, brief };
 }
 
 // --- Mock data for --mock mode ---
 
 function getMockResearch(projectName) {
   return {
-    gaps: [
-      { gap: 'No real-time collaboration', opportunity: 'Add live-editing with CRDTs' },
-      { gap: 'Poor mobile experience', opportunity: 'PWA-first responsive design' },
-      { gap: 'No plugin ecosystem', opportunity: 'Design extension API from day one' },
+    competitors: [
+      { name: 'CompetitorA', url: 'https://competitora.com', strengths: ['Established brand', 'Large user base'], weaknesses: ['Slow innovation', 'High pricing'], pricing: '$49/mo' },
+      { name: 'CompetitorB', url: 'https://competitorb.com', strengths: ['Modern UI', 'Good docs'], weaknesses: ['Limited features', 'No mobile app'], pricing: 'Freemium' },
+      { name: 'CompetitorC', url: 'https://competitorc.com', strengths: ['Open source', 'Active community'], weaknesses: ['Complex setup', 'Poor UX'], pricing: 'Free' },
     ],
-    summary: `The ${projectName} space has several established players but none offer real-time collaboration or mobile-first experiences.`,
+    gaps: [
+      { gap: 'No real-time collaboration', severity: 'high', opportunity: 'Add live-editing with CRDTs for instant multi-user sync' },
+      { gap: 'Poor mobile experience', severity: 'high', opportunity: 'PWA-first responsive design with offline support' },
+      { gap: 'No plugin ecosystem', severity: 'medium', opportunity: 'Design extension API from day one with a marketplace' },
+      { gap: 'Weak analytics dashboard', severity: 'medium', opportunity: 'Built-in analytics with actionable insights' },
+    ],
+    marketInsights: {
+      targetAudience: 'Small to mid-size teams looking for modern tooling',
+      marketSize: 'Growing $2B+ market with 15% YoY growth',
+      trends: ['AI-assisted workflows', 'Real-time collaboration', 'Mobile-first design'],
+    },
+    techRecommendations: ['WebSocket for real-time sync', 'React + Tailwind for frontend', 'PostgreSQL for data persistence'],
+    summary: `The ${projectName} space has several established players (CompetitorA, CompetitorB) but none offer real-time collaboration or mobile-first experiences. CompetitorC is open source but has poor UX. The biggest opportunity is combining real-time features with a polished mobile experience.`,
+  };
+}
+
+function getMockName(projectName) {
+  return {
+    name: `${projectName}AI`,
+    tagline: 'From idea to impact in seconds',
+    reasoning: `Combines the core concept of ${projectName} with AI-driven automation to signal innovation and speed.`,
   };
 }
 

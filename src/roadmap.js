@@ -13,10 +13,17 @@ const roadmapPrompt = fs.readFileSync(
 /**
  * Generate a roadmap of 7–10 tasks from Groq based on the project and research gaps.
  */
-async function generateRoadmap(projectName, gapData) {
+async function generateRoadmap(projectName, description, gapData) {
   const gapSummary = (gapData.gaps || [])
-    .map((g) => `- ${g.gap}: ${g.opportunity}`)
+    .map((g) => `- [${g.severity || 'medium'}] ${g.gap}: ${g.opportunity}`)
     .join('\n');
+
+  const competitorSummary = (gapData.competitors || [])
+    .map((c) => `- ${c.name}: strengths=${(c.strengths || []).join(', ')}; weaknesses=${(c.weaknesses || []).join(', ')}`)
+    .join('\n');
+
+  const techRecs = (gapData.techRecommendations || []).join(', ');
+  const audience = gapData.marketInsights?.targetAudience || '';
 
   const completion = await groq.chat.completions.create({
     model: config.groq.model,
@@ -27,7 +34,7 @@ async function generateRoadmap(projectName, gapData) {
       { role: 'system', content: roadmapPrompt },
       {
         role: 'user',
-        content: `Project: ${projectName}\nGaps:\n${gapSummary}\nGenerate 7-10 tasks.`,
+        content: `Project: ${projectName}\nDescription: ${description || 'N/A'}\nTarget Audience: ${audience}\n\nCompetitors:\n${competitorSummary || 'None identified'}\n\nGaps:\n${gapSummary}\n\nRecommended Tech: ${techRecs || 'N/A'}\n\nNote: The project already has a scaffolded repo with README.md, package.json, .gitignore, and src/index.js. Do NOT create tasks for these.\n\nGenerate 7-10 implementable tasks.`,
       },
     ],
   });

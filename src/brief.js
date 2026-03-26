@@ -13,14 +13,25 @@ const briefPrompt = fs.readFileSync(
 /**
  * Synthesize an investor brief from the research and roadmap data.
  */
-async function synthesizeBrief(projectName, gapData, roadmapData) {
+async function synthesizeBrief(projectName, startupName, description, gapData, roadmapData) {
+  const displayName = startupName?.name || projectName;
+  const tagline = startupName?.tagline || '';
+
+  const competitorSummary = (gapData.competitors || [])
+    .map((c) => `- ${c.name} (${c.pricing || 'Unknown'}): ${(c.strengths || []).join(', ')}`)
+    .join('\n');
+
   const gapSummary = (gapData.gaps || [])
-    .map((g) => `- ${g.gap}: ${g.opportunity}`)
+    .map((g) => `- [${g.severity || 'medium'}] ${g.gap}: ${g.opportunity}`)
     .join('\n');
 
   const taskSummary = (roadmapData.tasks || [])
-    .map((t) => `- [${t.priority}] ${t.title}`)
+    .map((t) => `- [${t.priority}] ${t.title}: ${t.description}`)
     .join('\n');
+
+  const audience = gapData.marketInsights?.targetAudience || '';
+  const marketSize = gapData.marketInsights?.marketSize || '';
+  const trends = (gapData.marketInsights?.trends || []).join(', ');
 
   const completion = await groq.chat.completions.create({
     model: config.groq.model,
@@ -30,7 +41,7 @@ async function synthesizeBrief(projectName, gapData, roadmapData) {
       { role: 'system', content: briefPrompt },
       {
         role: 'user',
-        content: `Project: ${projectName}\n\nCompetitive Research:\n${gapSummary}\n\nRoadmap:\n${taskSummary}\n\nWrite a 1-page investor brief.`,
+        content: `Project: ${displayName}\nTagline: ${tagline}\nDescription: ${description || 'N/A'}\nTarget Audience: ${audience}\nMarket Size: ${marketSize}\nTrends: ${trends}\n\nCompetitors:\n${competitorSummary}\n\nCompetitive Gaps:\n${gapSummary}\n\nRoadmap:\n${taskSummary}\n\nWrite a 1-page investor brief.`,
       },
     ],
   });
