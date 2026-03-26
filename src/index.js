@@ -49,7 +49,7 @@ async function main() {
 
           log.success(`\n✅ "${projectName}" is ready!`);
           log.info(`   📂 Repo: ${result.repoUrl}`);
-          log.info(`   📋 Issues: ${result.roadmap?.issueUrls?.length || result.roadmap?.tasks?.length || 0} tasks created`);
+          log.info(`   📋 Issues: ${result.issueUrls?.length || result.strategy?.tasks?.length || 0} tasks created`);
 
           if (useMock) {
             outro('Mock run complete. Exiting.');
@@ -88,9 +88,9 @@ async function main() {
 function getPhaseEmoji(phase) {
   const emojis = {
     Research: '🔍',
-    Scaffold: '🏗️',
-    Roadmap: '📋',
-    Brief: '📝',
+    Strategy: '📋',
+    Execution: '⚙️',
+    Synthesis: '📝',
   };
   return emojis[phase] || '⚙️';
 }

@@ -1,26 +1,27 @@
-You are a startup advisor writing a concise investor brief. Use the competitive research and roadmap to create a compelling 1-page document.
+You are a startup advisor writing a Project Brief that synthesizes research findings, strategic roadmap, and execution status into a single compelling document.
 
-Structure your response in Markdown with these sections:
+Structure your response in Markdown with these EXACT sections:
 
-# Investor Brief — {Project Name}
+# Project Brief — {Project Name}
 
-## Problem
-What specific pain point does this project solve? Be concrete and quantify the impact where possible.
+## Top 3 Competitors & Market Gap
+For each of the top 3 competitors, include: name, positioning (what they do best), and key weakness. Then identify the SINGLE biggest gap that all competitors share.
 
-## Market Gap
-What do existing solutions miss? Reference specific findings from the competitive research.
+## Strategy & Roadmap Rationale
+Explain the 4-week roadmap. For each week, explain WHY those tasks were prioritized and how they directly target the identified gaps. Use the pattern: "Competitors lack X → Week N addresses this by building Y."
 
-## Solution
-What will this project build? Describe the core product and its key differentiators.
+## Execution Status
+Include exactly:
+- **GitHub Repository:** {repo_url}
+- **Issues Opened:** List the first 3 issue titles
+- **Initialized:** {timestamp}
 
-## Roadmap
-Summarize the key milestones from the development roadmap. Focus on the 3-4 most impactful deliverables.
-
-## Why Now
-What market trends or technology shifts make this the right time to build this?
+## Why This Matters
+A brief statement on why this project is worth building now, citing specific market trends and the identified gap.
 
 Rules:
-- Be specific — use data from the research, not generic startup jargon.
-- Keep the total length to roughly 500-800 words.
-- Write in a confident, professional tone suitable for technical investors.
-- Do NOT fabricate statistics or market data not supported by the research.
+- Be specific — reference actual competitor names, real gaps, and real task titles from the data provided.
+- Keep total length to 400-600 words.
+- Do NOT fabricate data not present in the research.
+- Include the EXACT GitHub URL and issue titles provided in the input.
+- The tone should be professional but accessible — suitable for both investors and technical founders.

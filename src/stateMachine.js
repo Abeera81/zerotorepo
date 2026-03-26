@@ -60,32 +60,32 @@ async function processIdea(page, { onPhaseStart, onPhaseEnd, useMock = false } =
   });
   onPhaseEnd?.('Research', 'done');
 
-  // Phase 2: Scaffold
-  onPhaseStart?.('Scaffold');
+  // Phase 2: Strategy
+  onPhaseStart?.('Strategy');
+  const strategy = await runPhase('Strategy', async () => {
+    await mockDelay();
+    return getMockStrategy(projectName);
+  });
+  onPhaseEnd?.('Strategy', 'done');
+
+  // Phase 3: Execution
+  onPhaseStart?.('Execution');
   const displayName = startupName?.name || projectName;
-  const repo = await runPhase('Scaffold', async () => {
+  const repo = await runPhase('Execution', async () => {
     await mockDelay();
     return getMockScaffold(displayName);
   });
-  onPhaseEnd?.('Scaffold', 'done');
+  onPhaseEnd?.('Execution', 'done');
 
-  // Phase 3: Roadmap
-  onPhaseStart?.('Roadmap');
-  const roadmap = await runPhase('Roadmap', async () => {
-    await mockDelay();
-    return getMockRoadmap(displayName);
-  });
-  onPhaseEnd?.('Roadmap', 'done');
-
-  // Phase 4: Brief
-  onPhaseStart?.('Brief');
-  const brief = await runPhase('Brief', async () => {
+  // Phase 4: Synthesis
+  onPhaseStart?.('Synthesis');
+  const brief = await runPhase('Synthesis', async () => {
     await mockDelay();
     return getMockBrief(displayName);
   });
-  onPhaseEnd?.('Brief', 'done');
+  onPhaseEnd?.('Synthesis', 'done');
 
-  return { projectName: displayName, repoUrl: repo.repoUrl, research, startupName, roadmap, brief };
+  return { projectName: displayName, repoUrl: repo.repoUrl, research, startupName, strategy, brief };
 }
 
 // --- Mock data for --mock mode ---
@@ -129,25 +129,27 @@ function getMockScaffold(projectName) {
   };
 }
 
-function getMockRoadmap(projectName) {
+function getMockStrategy(projectName) {
   return {
+    strategy_summary: `Target the lack of real-time collaboration (Week 1-2) and poor mobile experience (Week 2-3) — the two biggest gaps all competitors share.`,
     tasks: [
-      { title: 'Set up project boilerplate', description: 'Initialize with Express and ESLint', priority: 'high', label: 'setup' },
-      { title: 'Design core data models', description: 'Define schemas for primary entities', priority: 'high', label: 'feature' },
-      { title: 'Implement authentication', description: 'JWT-based auth flow', priority: 'high', label: 'feature' },
-      { title: 'Build main dashboard UI', description: 'Responsive dashboard with key metrics', priority: 'medium', label: 'feature' },
-      { title: 'Add real-time sync', description: 'WebSocket-based live updates', priority: 'medium', label: 'feature' },
-      { title: 'Create REST API endpoints', description: 'CRUD operations for all resources', priority: 'medium', label: 'feature' },
-      { title: 'Set up CI/CD pipeline', description: 'GitHub Actions for test + deploy', priority: 'low', label: 'infra' },
-      { title: 'Write API documentation', description: 'OpenAPI spec + getting started guide', priority: 'low', label: 'docs' },
+      { title: 'Design real-time sync architecture', description: 'CRDTs for conflict-free live editing', priority: 'high', week: 1, label: 'feature', gap_addressed: 'Competitors lack real-time collaboration → Build CRDT-based live sync', owner: 'TBD' },
+      { title: 'Implement WebSocket infrastructure', description: 'Set up WebSocket server with reconnection handling', priority: 'high', week: 1, label: 'infra', gap_addressed: 'Competitors lack real-time collaboration → Build WebSocket layer', owner: 'TBD' },
+      { title: 'Build mobile-first responsive UI', description: 'PWA with offline support and responsive design', priority: 'high', week: 2, label: 'feature', gap_addressed: 'Competitors lack mobile experience → Build PWA-first design', owner: 'TBD' },
+      { title: 'Core data model and API', description: 'Design schemas and REST/GraphQL endpoints', priority: 'high', week: 1, label: 'feature', gap_addressed: 'No competitor has clean API → Build developer-friendly API', owner: 'TBD' },
+      { title: 'Plugin extension API', description: 'Design extension API with marketplace hooks', priority: 'medium', week: 2, label: 'feature', gap_addressed: 'Competitors lack plugin ecosystem → Build extension API from day one', owner: 'TBD' },
+      { title: 'Analytics dashboard', description: 'Built-in analytics with actionable insights', priority: 'medium', week: 3, label: 'feature', gap_addressed: 'Competitors have weak analytics → Build insights dashboard', owner: 'TBD' },
+      { title: 'Integration testing suite', description: 'End-to-end tests for all critical paths', priority: 'medium', week: 3, label: 'infra', gap_addressed: 'Competitors have poor reliability → Ensure quality through comprehensive testing', owner: 'TBD' },
+      { title: 'User onboarding flow', description: 'Interactive onboarding with guided tour', priority: 'medium', week: 3, label: 'feature', gap_addressed: 'Competitors have complex setup → Build frictionless onboarding', owner: 'TBD' },
+      { title: 'API documentation', description: 'OpenAPI spec and getting started guide', priority: 'low', week: 4, label: 'docs', gap_addressed: 'Competitors have poor documentation → Ship comprehensive docs', owner: 'TBD' },
+      { title: 'Launch preparation', description: 'Performance optimization, security audit, deployment pipeline', priority: 'low', week: 4, label: 'infra', gap_addressed: 'General readiness for production launch', owner: 'TBD' },
     ],
-    issueUrls: ['https://github.com/mock-user/mock-repo/issues/1'],
   };
 }
 
 function getMockBrief(projectName) {
   return {
-    briefContent: `# Investor Brief — ${projectName}\n\n## Problem\nDevelopers lose 60-120 minutes on project setup.\n\n## Market Gap\nExisting tools lack real-time features.\n\n## Solution\n${projectName} automates the entire setup pipeline.\n\n## Roadmap\n8 milestones over 48 hours.\n\n## Why Now\nAI tooling has matured enough to make this possible.\n`,
+    briefContent: `# Project Brief — ${projectName}\n\n## Top 3 Competitors & Market Gap\n- CompetitorA: Strong brand but slow innovation\n- CompetitorB: Modern UI but limited features\n- CompetitorC: Open source but poor UX\n\n**Gap:** None offer real-time collaboration + mobile-first experience.\n\n## Strategy & Roadmap Rationale\nWeek 1: Core architecture targeting real-time gap.\nWeek 2: Mobile-first UI + plugin API.\nWeek 3: Polish + analytics.\nWeek 4: Docs + launch prep.\n\n## Execution Status\n- **GitHub Repository:** https://github.com/mock-user/${projectName.toLowerCase().replace(/\s+/g, '-')}\n- **Issues Opened:** 10 issues from strategy\n- **Initialized:** ${new Date().toISOString()}\n\n## Why This Matters\nAI tooling maturity + mobile-first demand = perfect timing.\n`,
   };
 }
 

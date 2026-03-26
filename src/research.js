@@ -211,42 +211,52 @@ async function generateStartupName(projectName, description, gapData) {
 }
 
 /**
- * Format the full research as readable markdown.
+ * Format research as a "Market Analysis" document for Notion.
+ * Structure: competitors (name, positioning, weakness) + Gap Opportunity section.
  */
-function formatResearchMarkdown(projectName, startupName, research) {
-  let md = `# Deep Research — ${startupName?.name || projectName}\n\n`;
+function formatMarketAnalysis(projectName, startupName, research) {
+  let md = `# Market Analysis — ${startupName?.name || projectName}\n\n`;
   md += `> ${startupName?.tagline || ''}\n\n`;
 
   if (research.summary) {
     md += `## Executive Summary\n\n${research.summary}\n\n`;
   }
 
+  // Top competitors with name, positioning, key weakness
   if (research.competitors?.length > 0) {
-    md += '## Competitor Analysis\n\n';
-    for (const c of research.competitors) {
+    md += '## Top Competitors\n\n';
+    for (const c of research.competitors.slice(0, 5)) {
       md += `### ${c.name}\n`;
       if (c.url) md += `🔗 ${c.url}\n`;
       if (c.pricing) md += `💰 ${c.pricing}\n\n`;
-      if (c.strengths?.length > 0) {
-        md += `**Strengths:** ${c.strengths.join(', ')}\n`;
-      }
-      if (c.weaknesses?.length > 0) {
-        md += `**Weaknesses:** ${c.weaknesses.join(', ')}\n`;
-      }
-      md += '\n';
+      const positioning = (c.strengths || []).join(', ') || 'Unknown';
+      const weakness = (c.weaknesses || []).join(', ') || 'Not identified';
+      md += `**Positioning:** ${positioning}\n`;
+      md += `**Key Weakness:** ${weakness}\n\n`;
     }
   }
 
-  md += '## Identified Gaps & Opportunities\n\n';
-  for (const item of research.gaps || []) {
-    const severity = item.severity ? ` [${item.severity.toUpperCase()}]` : '';
-    md += `### 🔍 ${item.gap}${severity}\n`;
-    md += `**Opportunity:** ${item.opportunity}\n\n`;
+  // Gap Opportunity — the single biggest gap all competitors share
+  const highGaps = (research.gaps || []).filter((g) => g.severity === 'high');
+  const topGap = highGaps[0] || (research.gaps || [])[0];
+  if (topGap) {
+    md += '## 🎯 Gap Opportunity\n\n';
+    md += `**What all competitors lack:** ${topGap.gap}\n\n`;
+    md += `**Our opportunity:** ${topGap.opportunity}\n\n`;
   }
 
+  // All identified gaps
+  md += '## All Identified Gaps\n\n';
+  for (const item of research.gaps || []) {
+    const severity = item.severity ? ` [${item.severity.toUpperCase()}]` : '';
+    md += `- **${item.gap}**${severity} — ${item.opportunity}\n`;
+  }
+  md += '\n';
+
+  // Market context
   if (research.marketInsights) {
     const mi = research.marketInsights;
-    md += '## Market Insights\n\n';
+    md += '## Market Context\n\n';
     if (mi.targetAudience) md += `**Target Audience:** ${mi.targetAudience}\n`;
     if (mi.marketSize) md += `**Market Size:** ${mi.marketSize}\n`;
     if (mi.trends?.length > 0) {
@@ -266,4 +276,30 @@ function formatResearchMarkdown(projectName, startupName, research) {
   return md;
 }
 
-module.exports = { searchBrave, deepSearch, analyzeGaps, generateStartupName, formatResearchMarkdown };
+/**
+ * Fallback research data when Brave Search returns no results.
+ * Keeps the pipeline unbroken with template data that prompts manual validation.
+ */
+function getFallbackResearch(projectName) {
+  return {
+    competitors: [
+      { name: 'Market Leader (unknown)', url: 'N/A', strengths: ['Established market presence'], weaknesses: ['Limited innovation, slow to adapt'], pricing: 'Unknown' },
+      { name: 'Emerging Competitor (unknown)', url: 'N/A', strengths: ['Modern tech stack'], weaknesses: ['Small user base, unproven model'], pricing: 'Unknown' },
+      { name: 'Open-Source Alternative (unknown)', url: 'N/A', strengths: ['Free, community-driven'], weaknesses: ['Poor UX, no support'], pricing: 'Free' },
+    ],
+    gaps: [
+      { gap: 'No competitor offers a seamless end-to-end experience', severity: 'high', opportunity: `Build ${projectName} as a unified platform that eliminates fragmented workflows` },
+      { gap: 'Poor mobile and modern UX across all solutions', severity: 'high', opportunity: 'Design mobile-first with a modern, intuitive interface' },
+      { gap: 'Lack of AI-powered automation', severity: 'medium', opportunity: 'Integrate AI to automate repetitive tasks and surface insights' },
+    ],
+    marketInsights: {
+      targetAudience: 'To be validated through customer discovery',
+      marketSize: 'Requires manual research — search data unavailable',
+      trends: ['Digital transformation', 'AI-assisted workflows', 'Mobile-first design'],
+    },
+    techRecommendations: ['Start with lean MVP', 'Validate core assumptions early', 'Use modern web stack (React/Next.js + Node.js)'],
+    summary: `Live search results were unavailable for "${projectName}". This analysis uses template data to keep the pipeline running. Conduct manual competitive research to validate these assumptions and replace with real competitor data.`,
+  };
+}
+
+module.exports = { searchBrave, deepSearch, analyzeGaps, generateStartupName, formatMarketAnalysis, getFallbackResearch };
