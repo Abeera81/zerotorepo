@@ -316,6 +316,8 @@ async function main() {
     }
 
     // Step B: Auto-configure database columns and status options
+    // Notion shows columns in creation order, so we delete and re-add to enforce:
+    // Name (title) | Description | Trigger | Status | GitHub URL
     if (NOTION_DATABASE_ID) {
       s.start('Configuring database columns & status options...');
       try {
@@ -324,7 +326,6 @@ async function main() {
           data_source_id: NOTION_DATABASE_ID,
         });
         const existingProps = dbInfo.properties || {};
-        const existingNames = Object.keys(existingProps);
 
         // Step B1: Rename the default title column to "Name" if needed
         const titleProp = Object.entries(existingProps).find(([, v]) => v.type === 'title');
@@ -337,91 +338,70 @@ async function main() {
           log.info(`Renamed "${oldTitleName}" → "Name"`);
         }
 
-        // Step B2: Add columns one-by-one in the desired order:
-        // Description → Trigger → Status → GitHub URL
-        let added = [];
-
-        // 1. Description (rich_text)
-        if (!existingNames.includes('Description')) {
-          await mcp.callTool('API-update-a-data-source', {
-            data_source_id: NOTION_DATABASE_ID,
-            properties: { 'Description': { rich_text: {} } },
-          });
-          added.push('Description');
-        }
-
-        // 2. Trigger (checkbox)
-        if (!existingNames.includes('Trigger')) {
-          await mcp.callTool('API-update-a-data-source', {
-            data_source_id: NOTION_DATABASE_ID,
-            properties: { 'Trigger': { checkbox: {} } },
-          });
-          added.push('Trigger');
-        }
-
-        // 3. Status (status with pipeline options)
-        if (!existingNames.includes('Status')) {
-          await mcp.callTool('API-update-a-data-source', {
-            data_source_id: NOTION_DATABASE_ID,
-            properties: {
-              'Status': {
-                status: {
-                  options: [
-                    { name: 'Idea', color: 'default' },
-                    { name: 'Researching', color: 'blue' },
-                    { name: 'Planning', color: 'purple' },
-                    { name: 'Building', color: 'orange' },
-                    { name: 'Done', color: 'green' },
-                    { name: 'Error', color: 'red' },
-                  ],
-                },
-              },
-            },
-          });
-          added.push('Status');
-        } else if (existingProps['Status']?.type === 'status') {
-          // Status exists — ensure our pipeline options are present
-          const currentOptions = (existingProps['Status'].status?.options || []).map((o) => o.name);
-          const needed = ['Idea', 'Researching', 'Planning', 'Building', 'Done', 'Error'];
-          const missingOptions = needed.filter((n) => !currentOptions.includes(n));
-          if (missingOptions.length > 0) {
-            const allOptions = [
-              ...(existingProps['Status'].status?.options || []),
-              ...missingOptions.map((name) => {
-                const colors = { Idea: 'default', Researching: 'blue', Planning: 'purple', Building: 'orange', Done: 'green', Error: 'red' };
-                return { name, color: colors[name] || 'default' };
-              }),
-            ];
-            await mcp.callTool('API-update-a-data-source', {
-              data_source_id: NOTION_DATABASE_ID,
-              properties: { 'Status': { status: { options: allOptions } } },
-            });
-            added.push(`Status options (${missingOptions.join(', ')})`);
+        // Step B2: Delete existing non-title columns so we can re-add in correct order
+        const toDelete = ['Description', 'Trigger', 'Status', 'GitHub URL'];
+        const deletions = {};
+        for (const col of toDelete) {
+          if (existingProps[col]) {
+            deletions[col] = null;
           }
         }
-
-        // 4. GitHub URL (url)
-        if (!existingNames.includes('GitHub URL')) {
+        if (Object.keys(deletions).length > 0) {
           await mcp.callTool('API-update-a-data-source', {
             data_source_id: NOTION_DATABASE_ID,
-            properties: { 'GitHub URL': { url: {} } },
+            properties: deletions,
           });
-          added.push('GitHub URL');
         }
 
-        if (added.length > 0) {
-          s.stop(`✓ Database configured — added: ${added.join(', ')}`);
-        } else {
-          s.stop('✓ Database already has all required columns');
-        }
+        // Step B3: Re-add columns one-by-one in the desired order:
+        // Description → Trigger → Status → GitHub URL
+
+        // 1. Description (rich_text)
+        await mcp.callTool('API-update-a-data-source', {
+          data_source_id: NOTION_DATABASE_ID,
+          properties: { 'Description': { rich_text: {} } },
+        });
+
+        // 2. Trigger (checkbox)
+        await mcp.callTool('API-update-a-data-source', {
+          data_source_id: NOTION_DATABASE_ID,
+          properties: { 'Trigger': { checkbox: {} } },
+        });
+
+        // 3. Status (status with pipeline options)
+        await mcp.callTool('API-update-a-data-source', {
+          data_source_id: NOTION_DATABASE_ID,
+          properties: {
+            'Status': {
+              status: {
+                options: [
+                  { name: 'Idea', color: 'default' },
+                  { name: 'Researching', color: 'blue' },
+                  { name: 'Planning', color: 'purple' },
+                  { name: 'Building', color: 'orange' },
+                  { name: 'Done', color: 'green' },
+                  { name: 'Error', color: 'red' },
+                ],
+              },
+            },
+          },
+        });
+
+        // 4. GitHub URL (url)
+        await mcp.callTool('API-update-a-data-source', {
+          data_source_id: NOTION_DATABASE_ID,
+          properties: { 'GitHub URL': { url: {} } },
+        });
+
+        s.stop('✓ Database configured — columns: Name | Description | Trigger | Status | GitHub URL');
 
         // Verify final schema
-        const requiredCols = ['Status', 'Trigger'];
         const finalCheck = await mcp.callTool('API-retrieve-a-data-source', {
           data_source_id: NOTION_DATABASE_ID,
         });
         const finalProps = Object.keys(finalCheck.properties || {});
-        const stillMissing = requiredCols.filter((p) => !finalProps.includes(p));
+        const required = ['Status', 'Trigger', 'Description', 'GitHub URL'];
+        const stillMissing = required.filter((p) => !finalProps.includes(p));
         if (stillMissing.length > 0) {
           log.warn(`Could not add: ${stillMissing.join(', ')} — add manually in Notion.`);
         } else {
