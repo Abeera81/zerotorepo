@@ -12,7 +12,7 @@
 | **Runtime** | Node.js v20+ (local execution) |
 | **Primary Goal** | Turn a Notion idea into a fully scaffolded GitHub repo in **< 2 minutes** |
 | **Trigger** | Single checkbox click in Notion |
-| **Output** | Private GitHub repo + labeled issues + deep competitor research + startup name + investor brief |
+| **Output** | Private GitHub repo + labeled issues + market analysis + startup name + project brief |
 | **Key Innovation** | LLM agent decides tool execution order via Groq function calling; Notion ops via MCP protocol |
 | **Build Window** | 48 hours (hackathon) |
 | **Total API Cost** | $0 (all free tiers) |
@@ -27,8 +27,9 @@
 flowchart TB
     subgraph Notion["☁️ Notion"]
         DB[(Ideas Database)]
-        RP[Research Sub-Page]
-        BP[Brief Sub-Page]
+        MA[Market Analysis Sub-Page]
+        SP[Strategy Sub-Page]
+        BP[Project Brief Sub-Page]
     end
 
     subgraph MCP["🔌 MCP Layer"]
@@ -37,13 +38,14 @@ flowchart TB
     end
 
     subgraph Engine["⚙️ Node.js Engine (Local)"]
+        SW[Setup Wizard<br/>scripts/setup.js]
         PL[Polling Loop<br/>every 5s]
         AG[LLM Agent<br/>Groq Function Calling]
-        TR[Tool Registry<br/>10 tools]
-        P1[Research Module<br/>5-8 Brave searches]
-        P2[Scaffold Module<br/>Ghost commits]
-        P3[Roadmap Module<br/>Feature-focused]
-        P4[Brief Module<br/>Investor synthesis]
+        TR[Tool Registry<br/>12 tools]
+        P1[Research Module<br/>5-8 Brave searches + fallback]
+        P2[Strategy Module<br/>4-week gap-targeting roadmap]
+        P3[Scaffold Module<br/>Ghost commits + issues]
+        P4[Brief Module<br/>Project brief synthesis]
     end
 
     subgraph External["🌐 External APIs"]
@@ -59,14 +61,16 @@ flowchart TB
     Groq -- "tool decisions" --> AG
     AG --> TR
     TR --> P1 --> Brave
-    TR --> P2 --> GH
-    TR --> P3 --> Groq
+    TR --> P3 --> GH
+    TR --> P2 --> Groq
     TR --> P4 --> Groq
-    P1 -- "research" --> NM --> RP
+    P1 -- "market analysis" --> NM --> MA
+    P2 -- "strategy" --> NM --> SP
     P4 -- "brief" --> NM --> BP
-    P2 -- "GitHub URL" --> NM --> DB
+    P3 -- "GitHub URL" --> NM --> DB
 
     ZM -. "AI assistants" .-> TR
+    SW -. "validates APIs" .-> External
 
     style Notion fill:#f5f5f5,stroke:#333,color:#000
     style MCP fill:#e8f0fe,stroke:#4285f4,color:#000
@@ -97,55 +101,83 @@ sequenceDiagram
     Notion-->>MCP: Page found
     MCP-->>Engine: Page data (name, description, pageId)
 
-    Note over Agent: LLM Agent Loop Begins
+    Note over Agent: LLM Agent Loop Begins (14 steps)
     Engine->>Agent: Start agent with idea context
 
-    Agent->>Groq: What tool to call next?
-    Groq-->>Agent: → update_notion_status("Researching")
-    Agent->>MCP: Set Status → "Researching"
+    rect rgb(240, 248, 255)
+        Note over Agent: Phase 1 — Research (🔍)
+        Agent->>Groq: What tool to call next?
+        Groq-->>Agent: → update_notion_status("Researching")
+        Agent->>MCP: Set Status → "Researching"
 
-    Agent->>Groq: Next?
-    Groq-->>Agent: → deep_search
-    Agent->>Brave: 5-8 targeted search queries
-    Brave-->>Agent: Search results
+        Agent->>Groq: Next?
+        Groq-->>Agent: → deep_search
+        Agent->>Brave: 5-8 targeted search queries
+        Brave-->>Agent: Search results (or fallback data)
 
-    Agent->>Groq: Next?
-    Groq-->>Agent: → analyze_market
-    Agent->>Groq: Analyze competitors, gaps, market insights
-    Groq-->>Agent: Structured research JSON
+        Agent->>Groq: Next?
+        Groq-->>Agent: → analyze_market
+        Agent->>Groq: Analyze competitors, gaps, market insights
+        Groq-->>Agent: Structured research JSON
 
-    Agent->>Groq: Next?
-    Groq-->>Agent: → generate_startup_name
-    Agent->>Groq: Generate creative name + tagline
-    Groq-->>Agent: { name, tagline, reasoning }
+        Agent->>Groq: Next?
+        Groq-->>Agent: → generate_startup_name
+        Agent->>Groq: Generate creative name + tagline
+        Groq-->>Agent: { name, tagline, reasoning }
 
-    Agent->>Groq: Next?
-    Groq-->>Agent: → save_research_to_notion
-    Agent->>MCP: Create "Research — {name}" sub-page
+        Agent->>Groq: Next?
+        Groq-->>Agent: → save_market_analysis
+        Agent->>MCP: Create "Market Analysis — {name}" sub-page
+    end
 
-    Agent->>Groq: Next?
-    Groq-->>Agent: → create_github_repo
-    Agent->>GitHub: Create private repo + ghost commit scaffold
-    GitHub-->>Agent: { repoUrl, owner, repo }
+    rect rgb(255, 248, 240)
+        Note over Agent: Phase 2 — Strategy (📋)
+        Agent->>Groq: Next?
+        Groq-->>Agent: → update_notion_status("Planning")
+        Agent->>MCP: Set Status → "Planning"
 
-    Agent->>Groq: Next?
-    Groq-->>Agent: → set_github_url
-    Agent->>MCP: Set GitHub URL on Notion page
+        Agent->>Groq: Next?
+        Groq-->>Agent: → generate_strategy
+        Agent->>Groq: Generate 4-week gap-targeting roadmap
+        Groq-->>Agent: { strategy_summary, tasks[] }
 
-    Agent->>Groq: Next?
-    Groq-->>Agent: → create_roadmap_issues
-    Agent->>Groq: Generate 7-10 implementable tasks
-    Agent->>GitHub: Create labeled issues
-    GitHub-->>Agent: Issue URLs
+        Agent->>Groq: Next?
+        Groq-->>Agent: → save_strategy_to_notion
+        Agent->>MCP: Create "Strategy & Roadmap — {name}" sub-page
+    end
 
-    Agent->>Groq: Next?
-    Groq-->>Agent: → write_investor_brief
-    Agent->>Groq: Synthesize investor brief
-    Agent->>MCP: Create "Brief — {name}" sub-page
+    rect rgb(240, 255, 240)
+        Note over Agent: Phase 3 — Execution (⚙️)
+        Agent->>Groq: Next?
+        Groq-->>Agent: → update_notion_status("Building")
+        Agent->>MCP: Set Status → "Building"
 
-    Agent->>Groq: Next?
-    Groq-->>Agent: → finalize_idea
-    Agent->>MCP: Set Status → "Ready" ✅, uncheck Trigger
+        Agent->>Groq: Next?
+        Groq-->>Agent: → create_github_repo
+        Agent->>GitHub: Create private repo + ghost commit scaffold
+        GitHub-->>Agent: { repoUrl, owner, repo }
+
+        Agent->>Groq: Next?
+        Groq-->>Agent: → set_github_url
+        Agent->>MCP: Set GitHub URL on Notion page
+
+        Agent->>Groq: Next?
+        Groq-->>Agent: → create_github_issues
+        Agent->>GitHub: Create labeled issues from strategy tasks
+        GitHub-->>Agent: Issue URLs
+    end
+
+    rect rgb(248, 240, 255)
+        Note over Agent: Phase 4 — Synthesis (✅)
+        Agent->>Groq: Next?
+        Groq-->>Agent: → write_project_brief
+        Agent->>Groq: Synthesize project brief
+        Agent->>MCP: Create "Project Brief — {name}" sub-page
+
+        Agent->>Groq: Next?
+        Groq-->>Agent: → finalize_idea
+        Agent->>MCP: Set Status → "Done" ✅, uncheck Trigger
+    end
 ```
 
 ### 2.3 State Machine
@@ -154,32 +186,34 @@ sequenceDiagram
 stateDiagram-v2
     [*] --> Idea
     Idea --> Researching: Trigger detected (via MCP)
-    Researching --> Scaffolding: Research + name complete
-    Scaffolding --> GeneratingBrief: Repo + Issues created
-    GeneratingBrief --> Ready: Brief written
+    Researching --> Planning: Research + name complete
+    Planning --> Building: Strategy + roadmap saved
+    Building --> Done: Repo + issues + brief created
 
     Researching --> Error: Exception
-    Scaffolding --> Error: Exception
-    GeneratingBrief --> Error: Exception
+    Planning --> Error: Exception
+    Building --> Error: Exception
 
     Error --> Idea: Re-trigger (auto-reset)
 
     state Researching {
         [*] --> DeepSearch
-        DeepSearch --> MarketAnalysis: 5-8 Brave queries
+        DeepSearch --> MarketAnalysis: 5-8 Brave queries (+ fallback)
         MarketAnalysis --> NameGeneration: Groq analysis
-        NameGeneration --> SaveToNotion: Creative name + tagline
+        NameGeneration --> SaveMarketAnalysis: Creative name + tagline
     }
 
-    state Scaffolding {
+    state Planning {
+        [*] --> GenerateStrategy
+        GenerateStrategy --> SaveStrategy: 4-week gap-targeting roadmap
+    }
+
+    state Building {
         [*] --> CreateRepo
         CreateRepo --> GhostCommitFiles: Rich README + scaffold
-        GhostCommitFiles --> CreateIssues: 7-10 feature issues
-    }
-
-    state GeneratingBrief {
-        [*] --> GroqSynthesis
-        GroqSynthesis --> WriteBriefToNotion
+        GhostCommitFiles --> CreateIssues: Issues from strategy tasks
+        CreateIssues --> WriteProjectBrief: Brief synthesis
+        WriteProjectBrief --> Finalize: Mark Done
     }
 ```
 
@@ -224,22 +258,23 @@ flowchart TD
 zerotorepo/
 ├── src/
 │   ├── index.js            # Entry point — polling loop + CLI + graceful shutdown
-│   ├── agent.js            # 🤖 LLM agent — Groq function calling, 10 tools, context injection
+│   ├── agent.js            # 🤖 LLM agent — Groq function calling, 12 tools, 14-step workflow
 │   ├── stateMachine.js     # Routes: live → agent, mock → sequential pipeline
 │   ├── mcp-client.js       # MCP client — spawns Notion MCP server (stdio transport)
 │   ├── mcp-server.js       # ZeroToRepo as MCP server (7 tools for AI assistants)
-│   ├── notion.js           # Notion ops via MCP (query, patch, post, delete blocks)
-│   ├── research.js         # Deep multi-query Brave search + Groq analysis + name gen
-│   ├── scaffold.js         # GitHub repo creation + ghost commits + rich README
-│   ├── roadmap.js          # Groq roadmap generation (feature-focused, no boilerplate)
-│   ├── brief.js            # Investor brief synthesis
+│   ├── notion.js           # Notion ops via MCP + markdownToNotionBlocks() converter
+│   ├── research.js         # Deep multi-query Brave search + Groq analysis + name gen + fallback
+│   ├── scaffold.js         # GitHub repo creation + ghost commits + rich README + issues
+│   ├── roadmap.js          # Strategy generation — 4-week gap-targeting roadmap
+│   ├── brief.js            # Project brief synthesis
 │   └── config.js           # Environment config validation
 ├── prompts/
 │   ├── gap-analysis.txt    # System prompt for deep competitor analysis
-│   ├── roadmap.txt         # System prompt for implementable task generation
-│   ├── brief.txt           # System prompt for investor brief synthesis
+│   ├── roadmap.txt         # System prompt for strategy & task generation
+│   ├── brief.txt           # System prompt for project brief synthesis
 │   └── name-generation.txt # System prompt for creative startup naming
 ├── scripts/
+│   ├── setup.js            # Interactive setup wizard — tests all 4 API connections
 │   └── reset-db.js         # Reset Notion DB via MCP (status, trigger, sub-pages)
 ├── agent_docs/             # Tech stack docs, code patterns, testing guides
 ├── mcp.json                # MCP server config for Claude Desktop / VS Code
@@ -288,11 +323,31 @@ All Notion operations go through the Notion MCP Server (`@notionhq/notion-mcp-se
 | :--- | :--- | :--- | :--- |
 | `pollForTrigger` | `() → Promise<Page \| null>` | `API-query-data-source` | Queries DB for pages with `Trigger == true` AND (`Status == Idea` OR `Status == Error`) |
 | `updateStatus` | `(pageId, status) → Promise<void>` | `API-patch-page` | Sets the Status property |
-| `writeSubPage` | `(parentId, title, markdown) → Promise<string>` | `API-post-page` | Creates a child page with rich-text blocks |
+| `writeSubPage` | `(parentId, title, markdown) → Promise<string>` | `API-post-page` | Creates a child page with markdown-to-Notion-blocks conversion |
 | `setGitHubUrl` | `(pageId, url) → Promise<void>` | `API-patch-page` | Sets the `GitHub URL` property |
 | `resetTrigger` | `(pageId) → Promise<void>` | `API-patch-page` | Unchecks the `Trigger` checkbox |
 | `subPageExists` | `(parentId, title) → Promise<boolean>` | `API-get-block-children` | Checks for idempotency |
 | `disconnect` | `() → Promise<void>` | — | Gracefully closes MCP connection |
+
+**Markdown-to-Notion Blocks Converter:**
+
+`markdownToNotionBlocks(markdown)` converts raw markdown into Notion block objects with full formatting support:
+
+| Markdown Syntax | Notion Block Type |
+| :--- | :--- |
+| `# Heading` | `heading_1` |
+| `## Heading` | `heading_2` |
+| `### Heading` | `heading_3` |
+| `- Item` / `* Item` | `bulleted_list_item` |
+| `1. Item` | `numbered_list_item` |
+| `> Quote` | `quote` |
+| `---` / `***` | `divider` |
+| Plain text | `paragraph` |
+
+`parseInlineFormatting(text)` handles inline styles within blocks:
+- `**bold**` → bold annotation
+- `[text](url)` → clickable links
+- 2000 character limit per rich_text segment
 
 **Notion Database Schema (exact property names):**
 
@@ -300,7 +355,7 @@ All Notion operations go through the Notion MCP Server (`@notionhq/notion-mcp-se
 | :--- | :--- | :--- |
 | `Name` | `title` | Project name string |
 | `Description` | `rich_text` | Optional idea context for deeper research |
-| `Status` | `status` | `Idea` · `Researching` · `Scaffolding` · `Generating Brief` · `Ready` · `Error` |
+| `Status` | `status` | `Idea` · `Researching` · `Planning` · `Building` · `Done` · `Error` |
 | `Trigger` | `checkbox` | `true` / `false` |
 | `GitHub URL` | `url` | `https://github.com/{owner}/{repo}` |
 
@@ -331,7 +386,8 @@ const result = await mcpClient.callTool('API-query-data-source', {
 | `deepSearch` | `(name, desc) → Promise<SearchSet[]>` | Runs 5-8 targeted Brave searches with keyword extraction for long descriptions |
 | `analyzeGaps` | `(name, desc, searchSets) → Promise<ResearchData>` | Sends all results to Groq for competitor/gap/market analysis |
 | `generateStartupName` | `(name, desc, research) → Promise<NameData>` | Groq generates creative name + tagline from research context |
-| `formatResearchMarkdown` | `(name, nameData, research) → string` | Formats rich markdown for Notion sub-page |
+| `formatMarketAnalysis` | `(name, nameData, research) → string` | Formats rich "Market Analysis" markdown for Notion sub-page |
+| `getFallbackResearch` | `(name) → ResearchData` | Returns template research data when Brave Search fails or returns zero results |
 
 **Deep Search Strategy:**
 
@@ -341,6 +397,7 @@ const queries = buildSearchQueries(projectName, description);
 // Runs: "{name} competitors", "{name} market size", "{keywords} alternatives",
 //        "{keywords} trends", "{name} pricing model", etc.
 // Rate limited: 1 req/s, failed queries logged and skipped (resilient)
+// Falls back to getFallbackResearch() if all searches fail
 ```
 
 **Groq parameters (gap analysis):**
@@ -353,6 +410,16 @@ const queries = buildSearchQueries(projectName, description);
   "response_format": { "type": "json_object" }
 }
 ```
+
+**Market Analysis Output Structure:**
+
+The `formatMarketAnalysis()` function produces a rich markdown document with these sections:
+- **Executive Summary** — AI-generated market overview
+- **Top Competitors** — Name, URL, pricing, positioning, key weakness
+- **🎯 Gap Opportunity** — The single biggest gap all competitors share, plus the exploitation opportunity
+- **All Identified Gaps** — Each gap with severity rating and opportunity description
+- **Market Context** — Target audience, market size, trends
+- **Tech Recommendations** — Suggested technology stack
 
 **Expected Groq response shape:**
 
@@ -376,13 +443,14 @@ const queries = buildSearchQueries(projectName, description);
 
 ---
 
-### 5.4 `scaffold.js` — GitHub Repo + Ghost Commits
+### 5.4 `scaffold.js` — GitHub Repo + Ghost Commits + Issues
 
 | Function | Signature | Description |
 | :--- | :--- | :--- |
 | `createRepo` | `(name) → Promise<{repoUrl, owner, repo}>` | Creates a private repo via `POST /user/repos` |
 | `ghostCommit` | `(owner, repo, files) → Promise<void>` | Writes multiple files to `main` without cloning (GitHub Data API) |
-| `createIssues` | `(owner, repo, tasks) → Promise<string[]>` | Creates labeled issues from roadmap tasks; returns issue URLs |
+| `generateScaffoldFiles` | `(name, desc, research, startupName) → File[]` | Generates 4 scaffold files with research-enriched README |
+| `createIssues` | `(owner, repo, tasks) → Promise<string[]>` | Creates labeled issues from strategy tasks; returns issue URLs |
 
 **Ghost Commit Technique:**
 
@@ -424,13 +492,14 @@ This commits **all files atomically in one commit** — much faster than individ
 
 ---
 
-### 5.5 `roadmap.js` — Groq Roadmap + Issue Mapping
+### 5.5 `roadmap.js` — Strategy Generation + Gap-Targeting Roadmap
 
 | Function | Signature | Description |
 | :--- | :--- | :--- |
-| `generateRoadmap` | `(name, desc, research) → Promise<{tasks: Task[]}>` | Prompts Groq for 7–10 implementable feature tasks (no boilerplate) |
+| `generateStrategy` | `(name, desc, gapData) → Promise<{strategy_summary, tasks[]}>` | Prompts Groq for a 4-week roadmap with 8–12 tasks targeting competitive gaps |
+| `formatStrategyMarkdown` | `(name, strategy) → string` | Formats strategy as rich markdown grouped by week for Notion sub-page |
 
-**Groq parameters (roadmap):**
+**Groq parameters (strategy):**
 
 ```json
 {
@@ -441,21 +510,43 @@ This commits **all files atomically in one commit** — much faster than individ
 }
 ```
 
-**Key design decision:** The roadmap prompt explicitly excludes boilerplate tasks (e.g., "set up project", "create README") since those are already scaffolded. Only feature-level, implementable tasks are generated.
+**Key design decision:** The strategy is organized as a 4-week roadmap where each task explicitly targets a competitive gap identified during research. Tasks include `week` (1–4), `gap_addressed`, and `owner` fields for structured execution planning.
 
 **Expected task schema:**
 
 ```json
 {
+  "strategy_summary": "Focus on the core gap of...",
   "tasks": [
     {
-      "title": "Set up project boilerplate with Express",
-      "description": "Initialize Node.js project with Express, configure ESLint, add health-check endpoint at /api/health.",
+      "title": "Build unified API layer",
+      "description": "Create a REST API that consolidates fragmented competitor workflows.",
       "priority": "high",
-      "label": "setup"
+      "week": 1,
+      "gap_addressed": "No competitor offers end-to-end integration",
+      "owner": "Backend Lead",
+      "label": "feature"
     }
   ]
 }
+```
+
+**Strategy markdown output structure (via `formatStrategyMarkdown`):**
+
+```markdown
+# Strategy & Roadmap — {projectName}
+
+## Strategic Approach
+{strategy_summary}
+
+## Week 1 — Core Architecture & Critical Gaps
+### 🔴 Task Title
+**Priority:** high | **Owner:** Backend Lead | **Label:** feature
+**Gap Addressed:** No competitor offers end-to-end integration
+{description}
+
+## Week 2 — Feature Development
+...
 ```
 
 **Label mapping for GitHub Issues:**
@@ -470,11 +561,11 @@ Additional labels applied from the `label` field: `setup`, `feature`, `research`
 
 ---
 
-### 5.6 `brief.js` — Investor Brief Synthesis
+### 5.6 `brief.js` — Project Brief Synthesis
 
 | Function | Signature | Description |
 | :--- | :--- | :--- |
-| `synthesizeBrief` | `(displayName, startupName, desc, research, roadmap) → Promise<{briefContent}>` | Combines research + roadmap into a compelling 1-page brief |
+| `synthesizeBrief` | `(name, startupName, desc, research, strategy, repoUrl, issueUrls, timestamp) → Promise<{briefContent}>` | Combines research + strategy + repo data into a comprehensive project brief |
 
 **Groq parameters (brief):**
 
@@ -491,8 +582,9 @@ Additional labels applied from the `label` field: `setup`, `feature`, `research`
 1. **Problem** — What pain point does this solve?
 2. **Market Gap** — What do competitors miss? (from research)
 3. **Solution** — What will this project build?
-4. **Roadmap** — Key milestones (from roadmap tasks)
+4. **Roadmap** — 4-week strategy milestones (from strategy tasks)
 5. **Why Now** — Market timing argument
+6. **Resources** — GitHub repo link, issue URLs, generation timestamp
 
 ---
 
@@ -500,20 +592,41 @@ Additional labels applied from the `label` field: `setup`, `feature`, `research`
 
 The central innovation: instead of a hardcoded pipeline, an **LLM agent** decides which tool to call next using Groq's function calling API.
 
-**Tool Registry (10 tools):**
+**Tool Registry (12 tools across 4 phases):**
 
 | Tool | Phase | What It Does |
 | :--- | :--- | :--- |
-| `update_notion_status` | All | Update idea status in Notion via MCP |
-| `deep_search` | Research | Run 5-8 Brave searches |
-| `analyze_market` | Research | Groq competitor/gap/market analysis |
-| `generate_startup_name` | Research | Creative name + tagline from research |
-| `save_research_to_notion` | Research | Save rich research report via MCP |
-| `create_github_repo` | Scaffold | Create repo + ghost commit scaffold |
-| `set_github_url` | Scaffold | Set GitHub URL on Notion page via MCP |
-| `create_roadmap_issues` | Roadmap | Generate & create 7-10 GitHub Issues |
-| `write_investor_brief` | Brief | Synthesize brief → Notion via MCP |
-| `finalize_idea` | Done | Mark Ready, uncheck trigger |
+| `update_notion_status` | All | Update idea status in Notion via MCP (`Researching` / `Planning` / `Building` / `Done` / `Error`) |
+| `deep_search` | 🔍 Research | Run 5-8 Brave searches; returns fallback data if searches fail |
+| `analyze_market` | 🔍 Research | Groq competitor/gap/market analysis; uses fallback data if no search results |
+| `generate_startup_name` | 🔍 Research | Creative name + tagline from research context |
+| `save_market_analysis` | 🔍 Research | Save "Market Analysis" to Notion with competitors, gaps, and Gap Opportunity |
+| `generate_strategy` | 📋 Strategy | Generate 4-week roadmap targeting competitive gaps from Phase 1 |
+| `save_strategy_to_notion` | 📋 Strategy | Save "Strategy & Roadmap" with all tasks to Notion sub-page |
+| `create_github_repo` | ⚙️ Execution | Create private repo + ghost commit scaffold with research-enriched README |
+| `set_github_url` | ⚙️ Execution | Set GitHub URL on Notion page via MCP |
+| `create_github_issues` | ⚙️ Execution | Create GitHub issues from strategy roadmap tasks (each includes gap addressed) |
+| `write_project_brief` | ✅ Synthesis | Synthesize "Project Brief" to Notion with repo link, issues, timestamp |
+| `finalize_idea` | ✅ Synthesis | Mark Done, uncheck trigger |
+
+**14-Step Workflow (encoded in ORCHESTRATOR_SYSTEM_PROMPT):**
+
+| Step | Phase | Tool Call |
+| :--- | :--- | :--- |
+| 1 | 🔍 Research | `update_notion_status` → "Researching" |
+| 2 | 🔍 Research | `deep_search` — gather competitive intelligence |
+| 3 | 🔍 Research | `analyze_market` — identify competitors, gaps, market insights |
+| 4 | 🔍 Research | `generate_startup_name` — creative name from research |
+| 5 | 🔍 Research | `save_market_analysis` — write "Market Analysis" to Notion |
+| 6 | 📋 Strategy | `update_notion_status` → "Planning" |
+| 7 | 📋 Strategy | `generate_strategy` — 4-week gap-targeting roadmap |
+| 8 | 📋 Strategy | `save_strategy_to_notion` — write "Strategy & Roadmap" to Notion |
+| 9 | ⚙️ Execution | `update_notion_status` → "Building" |
+| 10 | ⚙️ Execution | `create_github_repo` — private repo with scaffold files |
+| 11 | ⚙️ Execution | `set_github_url` — store repo URL in Notion |
+| 12 | ⚙️ Execution | `create_github_issues` — create issues from roadmap tasks |
+| 13 | ✅ Synthesis | `write_project_brief` — synthesize everything into Project Brief |
+| 14 | ✅ Synthesis | `finalize_idea` — mark as Done |
 
 **Context Injection:** Large payloads (search results, research data, startup name) are stored in a shared context object and automatically injected into tool arguments — the LLM only sees compact summaries.
 
@@ -528,7 +641,7 @@ async function runAgent(ideaName, description, notionPageId, options) {
   const tools = buildToolsForLLM();
   const context = {}; // Shared state between tool calls
 
-  while (iterations < MAX_ITERATIONS) {
+  while (iterations < MAX_ITERATIONS) { // MAX_ITERATIONS = 18
     // Trim history to control token usage
     const trimmed = trimMessages(messages, 10);
 
@@ -557,8 +670,8 @@ async function runAgent(ideaName, description, notionPageId, options) {
 ### 5.8 `stateMachine.js` — Mode Router
 
 Routes between two modes:
-- **Live mode:** Delegates to `agent.js` — LLM-driven orchestration
-- **Mock mode:** Sequential pipeline with hardcoded fake data (no API calls)
+- **Live mode:** Delegates to `agent.js` — LLM-driven orchestration (14-step workflow)
+- **Mock mode:** Sequential pipeline with hardcoded fake data (no API calls), executing 4 phases: Research → Strategy → Execution → Synthesis
 
 ### 5.9 `mcp-client.js` — MCP Client
 
@@ -584,9 +697,33 @@ Exposes 7 high-level tools so any MCP-compatible AI assistant can drive the pipe
 | `research_competitors` | Deep research only |
 | `generate_name` | Generate startup name from research |
 | `scaffold_repo` | Create GitHub repo with scaffold |
-| `generate_roadmap` | Generate and create roadmap issues |
-| `generate_brief` | Synthesize investor brief |
+| `generate_roadmap` | Generate and create strategy roadmap issues |
+| `generate_brief` | Synthesize project brief |
 | `list_notion_ideas` | List all ideas in the Notion database |
+
+### 5.11 `scripts/setup.js` — Interactive Setup Wizard
+
+An interactive TUI setup wizard that collects API keys, tests all connections, and writes the `.env` file. Run via `npm run setup`.
+
+**Setup Flow:**
+
+| Step | Action | Validation |
+| :--- | :--- | :--- |
+| 1 | Prompt for Notion API key | Must start with `ntn_` or `secret_` |
+| 2 | Prompt for Groq API key | Must start with `gsk_` |
+| 3 | Prompt for Brave Search API key | Non-empty string |
+| 4 | Prompt for GitHub PAT | Must start with `ghp_` or `github_pat_` |
+
+**API Connection Tests:**
+
+| Service | Test Method | What It Validates |
+| :--- | :--- | :--- |
+| **Notion** | `listTools()` on MCP server | MCP server spawns and responds |
+| **Groq** | Send test message to `llama-3.3-70b-versatile` | API key valid, model accessible |
+| **Brave Search** | Test API request with sample query | Subscription token valid |
+| **GitHub** | `getAuthenticated()` via Octokit | PAT valid, fetches username |
+
+Built with `@clack/prompts` for a polished TUI experience with spinners, colored output, and cancel handling.
 
 ---
 
@@ -594,27 +731,28 @@ Exposes 7 high-level tools so any MCP-compatible AI assistant can drive the pipe
 
 ```mermaid
 flowchart LR
-    subgraph P1["Research Phase"]
+    subgraph P1["🔍 Research Phase"]
         P1out["{ competitors[], gaps[],<br/>marketInsights, techRecs,<br/>startupName, tagline }"]
     end
 
-    subgraph P2["Scaffold Phase"]
-        P2out["{ repoUrl, owner, repo }"]
+    subgraph P2["📋 Strategy Phase"]
+        P2out["{ strategy_summary,<br/>tasks[week, gap_addressed, owner] }"]
     end
 
-    subgraph P3["Roadmap Phase"]
-        P3out["{ tasks[], issueUrls[] }"]
+    subgraph P3["⚙️ Execution Phase"]
+        P3out["{ repoUrl, owner, repo,<br/>issueUrls[] }"]
     end
 
-    subgraph P4["Brief Phase"]
+    subgraph P4["✅ Synthesis Phase"]
         P4out["{ briefContent }"]
     end
 
-    P1out -- "research + name feed<br/>rich README" --> P2
-    P1out -- "competitors + gaps feed<br/>roadmap prompt" --> P3
+    P1out -- "gaps + competitors feed<br/>gap-targeting strategy" --> P2
+    P1out -- "research + name feed<br/>rich README" --> P3
+    P2out -- "tasks feed<br/>issue creation" --> P3
     P1out -- "full research feeds<br/>brief prompt" --> P4
-    P2out -- "owner/repo needed<br/>for issue creation" --> P3
-    P3out -- "roadmap feeds<br/>brief prompt" --> P4
+    P2out -- "strategy feeds<br/>brief prompt" --> P4
+    P3out -- "repo URL + issue URLs<br/>feed brief" --> P4
 ```
 
 **Context injection in agent.js** handles this data flow automatically — large objects are stored in a shared `context` object and injected into tool arguments without the LLM needing to pass them.
@@ -625,8 +763,9 @@ flowchart LR
 | :--- | :--- | :--- |
 | **Research** | `ResearchResult` | `{ competitors: Array<{name, url, strengths[], weaknesses[], pricing}>, gaps: Array<{gap, severity, opportunity}>, marketInsights: {targetAudience, marketSize, trends[]}, techRecommendations: string[], summary: string }` |
 | **Name Gen** | `NameResult` | `{ name: string, tagline: string, reasoning: string }` |
+| **Strategy** | `StrategyResult` | `{ strategy_summary: string, tasks: Array<{title, description, priority, week, gap_addressed, owner, label}> }` |
 | **Scaffold** | `ScaffoldResult` | `{ repoUrl: string, owner: string, repo: string }` |
-| **Roadmap** | `RoadmapResult` | `{ tasks: Array<{title, description, priority, label}>, issueUrls: string[] }` |
+| **Issues** | `IssueResult` | `{ issueUrls: string[] }` |
 | **Brief** | `BriefResult` | `{ briefContent: string }` |
 
 ---
@@ -676,10 +815,10 @@ Each phase checks for prior completion before executing:
 
 | Phase | Idempotency Check |
 | :--- | :--- |
-| **Research** | Skip if a sub-page titled "Research — {name}" already exists |
+| **Research** | Skip if a sub-page titled "Market Analysis — {name}" already exists |
+| **Strategy** | Skip if a sub-page titled "Strategy & Roadmap — {name}" already exists |
 | **Scaffold** | Skip if `GitHub URL` property is already populated |
-| **Roadmap** | Skip if repo already has ≥ 5 open issues |
-| **Brief** | Skip if a sub-page titled "Brief — {name}" already exists |
+| **Brief** | Skip if a sub-page titled "Project Brief — {name}" already exists |
 
 This allows safe re-runs if the process crashes mid-pipeline.
 
@@ -702,14 +841,14 @@ This allows safe re-runs if the process crashes mid-pipeline.
 | :--- | :--- | :--- |
 | Write `research.js` — Brave + Groq | 6–9 | Gap analysis written as Notion sub-page |
 | Write `scaffold.js` — repo + ghost commit | 9–13 | Private repo appears on GitHub with scaffold files |
-| Write `roadmap.js` — Groq JSON → issues | 13–16 | 7–10 labeled issues created on GitHub |
-| Write `brief.js` — investor brief | 16–18 | Brief sub-page created in Notion |
+| Write `roadmap.js` — Groq JSON → strategy | 13–16 | 8–12 strategy tasks with gap targeting |
+| Write `brief.js` — project brief | 16–18 | Brief sub-page created in Notion |
 
 ### Hour 18–30: Integration & State Machine
 
 | Task | Hours | Deliverable |
 | :--- | :--- | :--- |
-| Write `stateMachine.js` — full orchestration | 18–22 | End-to-end flow: Idea → Ready |
+| Write `stateMachine.js` — full orchestration | 18–22 | End-to-end flow: Idea → Done |
 | Error handling + retry logic | 22–26 | Graceful failures with Notion "Error" status |
 | Idempotency checks | 26–28 | Safe re-runs after crash |
 | Mock mode (`--mock` flag) | 28–30 | Full demo without burning API quota |
@@ -807,16 +946,16 @@ This means:
 
 ### 10.1 Groq API
 
-| Parameter | Agent Orchestration | Gap Analysis | Name Gen | Roadmap | Brief |
+| Parameter | Agent Orchestration | Gap Analysis | Name Gen | Strategy | Brief |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **Model** | `llama-3.3-70b-versatile` | same | same | same | same |
 | **Temperature** | `0` (deterministic) | `0.3` (factual) | `0.8` (creative) | `0.4` (structured) | `0.6` (creative) |
 | **Max Tokens** | `1024` | `2500` | `500` | `2000` | `2500` |
 | **Response Format** | — (function calling) | `json_object` | `json_object` | `json_object` | free-text markdown |
-| **Function Calling** | ✅ 10 tools | — | — | — | — |
+| **Function Calling** | ✅ 12 tools | — | — | — | — |
 
 **Rate limits (free tier):** 30 requests/min, 100,000 tokens/day.
-**Token optimization:** Message history trimmed, tool results summarized, ~14 Groq calls per pipeline run.
+**Token optimization:** Message history trimmed, tool results summarized, ~16 Groq calls per pipeline run (14 tool steps + strategy/brief generation).
 
 ### 10.2 Brave Search API
 
@@ -857,11 +996,11 @@ Run these tests before the demo to verify end-to-end functionality:
 | :--- | :--- | :--- | :--- |
 | 1 | Start script with valid `.env` | CLI shows "Polling…" with spinner | ☐ |
 | 2 | Start script with missing env var | Fails immediately with clear message | ☐ |
-| 3 | Check "Trigger" on a new idea | Status cycles: Researching → Scaffolding → Generating Brief → Ready | ☐ |
+| 3 | Check "Trigger" on a new idea | Status cycles: Researching → Planning → Building → Done | ☐ |
 | 4 | Check GitHub after run | Repo exists with README, package.json, .gitignore, src/index.js | ☐ |
-| 5 | Check GitHub Issues | 7–10 issues with `priority: high/medium/low` labels | ☐ |
-| 6 | Check Notion sub-pages | "Research" and "Brief" sub-pages exist with real content | ☐ |
-| 7 | Check Notion row | `GitHub URL` is populated, `Status` = Ready, `Trigger` unchecked | ☐ |
+| 5 | Check GitHub Issues | 8–12 issues with `priority: high/medium/low` labels + gap references | ☐ |
+| 6 | Check Notion sub-pages | "Market Analysis", "Strategy & Roadmap", and "Project Brief" sub-pages exist with real content | ☐ |
+| 7 | Check Notion row | `GitHub URL` is populated, `Status` = Done, `Trigger` unchecked | ☐ |
 | 8 | Re-trigger same idea | Idempotency: skips already-completed phases | ☐ |
 | 9 | Simulate API error | Status set to "Error", error logged, other ideas unaffected | ☐ |
 | 10 | Run 3 different ideas sequentially | All 3 succeed with unique repos and content | ☐ |
@@ -890,7 +1029,7 @@ node scripts/reset-db.js
 **Behavior:**
 - Queries all pages in the database
 - Sets `Status` → `Idea`, `Trigger` → `false`, `GitHub URL` → empty
-- Deletes all sub-pages (Research, Brief)
+- Deletes all sub-pages (Market Analysis, Strategy & Roadmap, Project Brief)
 - Used between demo runs to return to a clean state
 
 ---
@@ -935,8 +1074,8 @@ GITHUB_OWNER=your_github_username
 | Metric | Target | How to Measure |
 | :--- | :--- | :--- |
 | **Time to Repo** | < 60 seconds | Stopwatch from checkbox click to GitHub URL appearing in Notion |
-| **Roadmap Depth** | ≥ 7 issues | Count of issues created in the new repo |
-| **Research Quality** | ≥ 3 specific gaps | Manual review — gaps must reference real competitors |
+| **Roadmap Depth** | ≥ 8 issues | Count of issues created in the new repo |
+| **Research Quality** | ≥ 3 specific gaps | Manual review — gaps must reference real competitors, includes Gap Opportunity |
 | **Brief Quality** | Project-specific insights | Manual review — no generic LLM filler |
 | **Zero Config** | 0 manual git commands | User only clicks a checkbox |
 | **Error Recovery** | Graceful | Errors show in Notion, don't crash the process |
@@ -954,21 +1093,23 @@ GITHUB_OWNER=your_github_username
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
+    "setup": "node scripts/setup.js",
     "mock": "node src/index.js --mock",
     "reset": "node scripts/reset-db.js",
     "mcp": "node src/mcp-server.js"
   },
   "dependencies": {
+    "@clack/prompts": "^1.1.0",
     "@modelcontextprotocol/sdk": "^1.28.0",
+    "@notionhq/client": "^5.14.0",
     "@notionhq/notion-mcp-server": "^2.2.1",
-    "@octokit/rest": "^22.0.0",
-    "groq-sdk": "^0.18.0",
-    "dotenv": "^17.3.0",
-    "@clack/prompts": "^0.10.0"
+    "@octokit/rest": "^22.0.1",
+    "dotenv": "^17.3.1",
+    "groq-sdk": "^1.1.1"
   }
 }
 ```
 
 ---
 
-*Document Owner: Hackathon Team · Built for the 48-Hour Sprint · Last Updated: 2026-03-26*
+*Document Owner: Hackathon Team · Built for the 48-Hour Sprint · Last Updated: 2025-07-15*
