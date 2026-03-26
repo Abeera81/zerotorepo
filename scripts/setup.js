@@ -269,78 +269,146 @@ async function main() {
   // ── Set up Notion workspace ─────────────────────────────────────────────
 
   if (mcp) {
-    s.start('Setting up Notion workspace...');
-    try {
-      // Find or use existing database
-      if (NOTION_DATABASE_ID) {
-        // Verify existing DB is accessible
-        try {
-          await mcp.callTool('API-query-data-source', {
-            data_source_id: NOTION_DATABASE_ID,
-            page_size: 1,
-          });
-          s.stop('✓ Notion "Projects" database verified');
-        } catch {
-          log.warn('Existing database ID is invalid. Searching for Projects database...');
-          NOTION_DATABASE_ID = '';
-        }
-      }
-
-      if (!NOTION_DATABASE_ID) {
-        // No existing DB — ask user to provide the database ID
-        s.stop('⚠ No Notion database ID configured');
-        log.info('Create a database in Notion with columns:');
-        log.info('  • Name (title), Status (status), Trigger (checkbox)');
-        log.info('  • Description (rich text), GitHub URL (url)');
-        log.info('Share the page with your integration, then grab the database ID from the URL.');
-
-        const manualId = await text({
-          message: 'Paste your Notion database ID:',
-          placeholder: '32-char hex string from Notion URL',
-          validate: (v) => {
-            if (!v) return 'Required — create a database in Notion first';
-          },
+    // Step A: Get or ask for database ID
+    if (NOTION_DATABASE_ID) {
+      s.start('Verifying Notion database...');
+      try {
+        await mcp.callTool('API-retrieve-a-data-source', {
+          data_source_id: NOTION_DATABASE_ID,
         });
-        if (manualId && !isCancel(manualId)) {
-          NOTION_DATABASE_ID = manualId.replace(/-/g, '');
-          // Verify the manually-entered ID
-          s.start('Verifying database access...');
-          try {
-            await mcp.callTool('API-query-data-source', {
-              data_source_id: NOTION_DATABASE_ID,
-              page_size: 1,
-            });
-            s.stop('✓ Notion database verified');
-          } catch (err) {
-            s.stop('✗ Cannot access database: ' + err.message);
-            log.warn('Make sure the database is shared with your Notion integration.');
-          }
+        s.stop('✓ Notion database found');
+      } catch {
+        log.warn('Existing database ID is invalid or not shared with the integration.');
+        NOTION_DATABASE_ID = '';
+      }
+    }
+
+    if (!NOTION_DATABASE_ID) {
+      note(
+        'Create any database in Notion (even an empty one).\n' +
+        'Share the page with your "ZeroToRepo" integration.\n' +
+        'Grab the database ID from the URL (32-char hex after the page title).\n\n' +
+        'The setup wizard will automatically add all required columns.',
+        'Notion Database',
+      );
+
+      const manualId = await text({
+        message: 'Paste your Notion database ID:',
+        placeholder: '32-char hex string from Notion URL',
+        validate: (v) => {
+          if (!v) return 'Required — create a database in Notion first';
+        },
+      });
+      if (isCancel(manualId)) bail();
+      if (manualId) {
+        NOTION_DATABASE_ID = manualId.replace(/-/g, '');
+        s.start('Verifying database access...');
+        try {
+          await mcp.callTool('API-retrieve-a-data-source', {
+            data_source_id: NOTION_DATABASE_ID,
+          });
+          s.stop('✓ Notion database verified');
+        } catch (err) {
+          s.stop('✗ Cannot access database: ' + err.message);
+          log.warn('Make sure the database is shared with your Notion integration.');
         }
       }
+    }
 
-      // Verify database has required properties
-      if (NOTION_DATABASE_ID) {
-        try {
-          const testQuery = await mcp.callTool('API-query-data-source', {
-            data_source_id: NOTION_DATABASE_ID,
-            page_size: 1,
-          });
-          const page = (testQuery.results || [])[0];
-          if (page) {
-            const props = Object.keys(page.properties || {});
-            const required = ['Name', 'Status', 'Trigger'];
-            const missing = required.filter((p) => !props.includes(p));
-            if (missing.length > 0) {
-              log.warn(`Database is missing properties: ${missing.join(', ')}`);
-              log.warn('Add them in Notion for the pipeline to work correctly.');
-            } else {
-              log.info('Database has all required properties ✓');
-            }
+    // Step B: Auto-configure database columns and status options
+    if (NOTION_DATABASE_ID) {
+      s.start('Configuring database columns & status options...');
+      try {
+        // Retrieve current schema
+        const dbInfo = await mcp.callTool('API-retrieve-a-data-source', {
+          data_source_id: NOTION_DATABASE_ID,
+        });
+        const existingProps = dbInfo.properties || {};
+        const existingNames = Object.keys(existingProps);
+
+        // Build property updates for missing columns
+        const updates = {};
+        let added = [];
+
+        // Status (status type with our pipeline options)
+        if (!existingNames.includes('Status')) {
+          updates['Status'] = {
+            status: {
+              options: [
+                { name: 'Idea', color: 'default' },
+                { name: 'Researching', color: 'blue' },
+                { name: 'Planning', color: 'purple' },
+                { name: 'Building', color: 'orange' },
+                { name: 'Done', color: 'green' },
+                { name: 'Error', color: 'red' },
+              ],
+            },
+          };
+          added.push('Status');
+        } else if (existingProps['Status']?.type === 'status') {
+          // Status exists — ensure our pipeline options are present
+          const currentOptions = (existingProps['Status'].status?.options || []).map((o) => o.name);
+          const needed = ['Idea', 'Researching', 'Planning', 'Building', 'Done', 'Error'];
+          const missingOptions = needed.filter((n) => !currentOptions.includes(n));
+          if (missingOptions.length > 0) {
+            // Merge existing + missing options
+            const allOptions = [
+              ...(existingProps['Status'].status?.options || []),
+              ...missingOptions.map((name) => {
+                const colors = { Idea: 'default', Researching: 'blue', Planning: 'purple', Building: 'orange', Done: 'green', Error: 'red' };
+                return { name, color: colors[name] || 'default' };
+              }),
+            ];
+            updates['Status'] = { status: { options: allOptions } };
+            added.push(`Status options (${missingOptions.join(', ')})`);
           }
-        } catch { /* non-fatal */ }
+        }
+
+        // Trigger (checkbox)
+        if (!existingNames.includes('Trigger')) {
+          updates['Trigger'] = { checkbox: {} };
+          added.push('Trigger');
+        }
+
+        // Description (rich_text)
+        if (!existingNames.includes('Description')) {
+          updates['Description'] = { rich_text: {} };
+          added.push('Description');
+        }
+
+        // GitHub URL (url)
+        if (!existingNames.includes('GitHub URL')) {
+          updates['GitHub URL'] = { url: {} };
+          added.push('GitHub URL');
+        }
+
+        // Apply updates if any
+        if (Object.keys(updates).length > 0) {
+          await mcp.callTool('API-update-a-data-source', {
+            data_source_id: NOTION_DATABASE_ID,
+            properties: updates,
+          });
+          s.stop(`✓ Database configured — added: ${added.join(', ')}`);
+        } else {
+          s.stop('✓ Database already has all required columns');
+        }
+
+        // Verify final schema
+        const requiredCols = ['Status', 'Trigger'];
+        const finalCheck = await mcp.callTool('API-retrieve-a-data-source', {
+          data_source_id: NOTION_DATABASE_ID,
+        });
+        const finalProps = Object.keys(finalCheck.properties || {});
+        const stillMissing = requiredCols.filter((p) => !finalProps.includes(p));
+        if (stillMissing.length > 0) {
+          log.warn(`Could not add: ${stillMissing.join(', ')} — add manually in Notion.`);
+        } else {
+          log.info('All required columns verified ✓');
+        }
+      } catch (err) {
+        s.stop('⚠ Column setup had issues: ' + err.message);
+        log.warn('You may need to add columns manually: Status (status), Trigger (checkbox), Description (rich text), GitHub URL (url)');
       }
-    } catch (err) {
-      s.stop('⚠ Workspace setup had issues: ' + err.message);
     }
 
     await mcp.close().catch(() => {});
