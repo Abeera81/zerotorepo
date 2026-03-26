@@ -5,9 +5,9 @@ const { z } = require('zod');
 // Load config (validates env vars)
 const config = require('./config');
 const notion = require('./notion');
-const { deepSearch, analyzeGaps, generateStartupName, formatResearchMarkdown } = require('./research');
+const { deepSearch, analyzeGaps, generateStartupName, formatMarketAnalysis } = require('./research');
 const { createRepo, ghostCommit, generateScaffoldFiles, createIssues } = require('./scaffold');
-const { generateRoadmap } = require('./roadmap');
+const { generateStrategy } = require('./roadmap');
 const { synthesizeBrief } = require('./brief');
 const { processIdea, PhaseError } = require('./stateMachine');
 
@@ -22,7 +22,7 @@ const server = new McpServer({
 // --- Tool: Full Pipeline ---
 server.tool(
   'process_idea',
-  'Run the full ZeroToRepo pipeline: Research → Scaffold → Roadmap → Brief. Takes an idea name and optional description, returns a GitHub repo with issues and investor brief.',
+  'Run the full ZeroToRepo pipeline: Research → Strategy → Execution → Synthesis. Takes an idea name and optional description, returns a GitHub repo with issues and project brief.',
   {
     idea_name: z.string().describe('The name or title of the business idea'),
     description: z.string().optional().describe('A description of the business idea for better research context'),
@@ -55,7 +55,7 @@ server.tool(
             success: true,
             projectName: result.projectName,
             repoUrl: result.repoUrl,
-            issuesCreated: result.roadmap?.issueUrls?.length || 0,
+            issuesCreated: result.strategy?.tasks?.length || result.roadmap?.issueUrls?.length || 0,
             startupName: result.startupName,
           }, null, 2),
         }],
@@ -82,7 +82,7 @@ server.tool(
       const searchSets = await deepSearch(idea_name, description || '');
       const gapData = await analyzeGaps(idea_name, description || '', searchSets);
       const nameData = await generateStartupName(idea_name, description || '', gapData);
-      const markdown = formatResearchMarkdown(idea_name, nameData, gapData);
+      const markdown = formatMarketAnalysis(idea_name, nameData, gapData);
 
       return {
         content: [{
@@ -167,7 +167,7 @@ server.tool(
 // --- Tool: Generate Roadmap ---
 server.tool(
   'generate_roadmap',
-  'Generate a development roadmap of 7-10 prioritized tasks and create GitHub issues for them.',
+  'Generate a 4-week gap-targeting strategy from competitive research and create GitHub issues for the tasks.',
   {
     project_name: z.string().describe('Project name'),
     description: z.string().optional().describe('Project description'),
@@ -181,7 +181,7 @@ server.tool(
       if (gaps) {
         try { gapData = JSON.parse(gaps); } catch { /* use defaults */ }
       }
-      const { tasks } = await generateRoadmap(project_name, description || '', gapData);
+      const { tasks } = await generateStrategy(project_name, description || '', gapData);
       const issueUrls = await createIssues(repo_owner, repo_name, tasks);
       return {
         content: [{
@@ -201,7 +201,7 @@ server.tool(
 // --- Tool: Generate Brief ---
 server.tool(
   'generate_brief',
-  'Generate a 1-page investor brief in Markdown format from research and roadmap data.',
+  'Generate a Project Brief synthesizing research findings, roadmap rationale, repo link, and issues.',
   {
     project_name: z.string().describe('Project or startup name'),
     description: z.string().optional().describe('Project description'),
