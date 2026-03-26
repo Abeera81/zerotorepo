@@ -214,8 +214,8 @@ async function generateStartupName(projectName, description, gapData) {
  * Format the full research as readable markdown.
  */
 function formatResearchMarkdown(projectName, startupName, research) {
-  let md = `# Deep Research — ${startupName.name || projectName}\n\n`;
-  md += `> ${startupName.tagline || ''}\n\n`;
+  let md = `# Deep Research — ${startupName?.name || projectName}\n\n`;
+  md += `> ${startupName?.tagline || ''}\n\n`;
 
   if (research.summary) {
     md += `## Executive Summary\n\n${research.summary}\n\n`;

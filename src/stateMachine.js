@@ -1,8 +1,5 @@
 const notion = require('./notion');
-const { deepSearch, analyzeGaps, generateStartupName, formatResearchMarkdown } = require('./research');
-const { createRepo, ghostCommit, generateScaffoldFiles, createIssues } = require('./scaffold');
-const { generateRoadmap } = require('./roadmap');
-const { synthesizeBrief } = require('./brief');
+const { runAgent } = require('./agent');
 
 class PhaseError extends Error {
   constructor(phase, cause) {
@@ -36,105 +33,57 @@ async function runPhase(phaseName, fn) {
   }
 }
 
+
 /**
  * Process a single Notion idea through all four phases.
+ * In live mode: LLM agent orchestrates tool calls via Groq function calling.
+ * In mock mode: sequential pipeline with mock data.
  */
 async function processIdea(page, { onPhaseStart, onPhaseEnd, useMock = false } = {}) {
   const pageId = page.id;
   const projectName = notion.extractTitle(page);
   const description = notion.extractDescription(page);
 
-  const mockDelay = () => useMock ? sleep(1500) : Promise.resolve();
+  // Live mode: LLM-driven agent orchestration
+  if (!useMock) {
+    return await runAgent(projectName, description, pageId, { onPhaseStart, onPhaseEnd });
+  }
 
-  // Phase 1: Research (deep multi-query + name generation)
+  // Mock mode: sequential pipeline with fake data
+  const mockDelay = () => sleep(1500);
+
+  // Phase 1: Research
   onPhaseStart?.('Research');
-  if (!useMock) await notion.updateStatus(pageId, 'Researching');
   const { research, startupName } = await runPhase('Research', async () => {
-    if (useMock) { await mockDelay(); return { research: getMockResearch(projectName), startupName: getMockName(projectName) }; }
-
-    // Idempotency: skip if research sub-page already exists
-    if (await notion.subPageExists(pageId, `Research — ${projectName}`)) {
-      onPhaseEnd?.('Research', 'skipped (already exists)');
-      return {
-        research: { gaps: [], summary: 'Research already completed.' },
-        startupName: { name: projectName, tagline: description },
-      };
-    }
-
-    // Deep search: 5 queries across different angles
-    const searchSets = await deepSearch(projectName, description);
-
-    // Deep analysis: competitors, gaps, market insights, tech recommendations
-    const gapData = await analyzeGaps(projectName, description, searchSets);
-
-    // Generate a catchy startup name from the research
-    const nameData = await generateStartupName(projectName, description, gapData);
-
-    // Write rich research to Notion
-    const markdown = formatResearchMarkdown(projectName, nameData, gapData);
-    await notion.writeSubPage(pageId, `Research — ${projectName}`, markdown);
-
-    return { research: gapData, startupName: nameData };
+    await mockDelay();
+    return { research: getMockResearch(projectName), startupName: getMockName(projectName) };
   });
   onPhaseEnd?.('Research', 'done');
 
-  // Phase 2: Scaffold (uses startup name + rich research for README)
+  // Phase 2: Scaffold
   onPhaseStart?.('Scaffold');
-  if (!useMock) await notion.updateStatus(pageId, 'Scaffolding');
   const displayName = startupName?.name || projectName;
   const repo = await runPhase('Scaffold', async () => {
-    if (useMock) { await mockDelay(); return getMockScaffold(displayName); }
-
-    // Idempotency: skip if GitHub URL already set
-    const existingUrl = page.properties['GitHub URL']?.url;
-    if (existingUrl) {
-      onPhaseEnd?.('Scaffold', 'skipped (repo exists)');
-      const parts = existingUrl.replace('https://github.com/', '').split('/');
-      return { repoUrl: existingUrl, owner: parts[0], repo: parts[1] };
-    }
-
-    const repoInfo = await createRepo(displayName);
-    const files = generateScaffoldFiles(displayName, description, research, startupName);
-    await ghostCommit(repoInfo.owner, repoInfo.repo, files);
-    await notion.setGitHubUrl(pageId, repoInfo.repoUrl);
-    return repoInfo;
+    await mockDelay();
+    return getMockScaffold(displayName);
   });
   onPhaseEnd?.('Scaffold', 'done');
 
-  // Phase 3: Roadmap → Issues (uses richer context, excludes boilerplate tasks)
+  // Phase 3: Roadmap
   onPhaseStart?.('Roadmap');
   const roadmap = await runPhase('Roadmap', async () => {
-    if (useMock) { await mockDelay(); return getMockRoadmap(displayName); }
-
-    const { tasks } = await generateRoadmap(displayName, description, research);
-    const issueUrls = await createIssues(repo.owner, repo.repo, tasks);
-    return { tasks, issueUrls };
+    await mockDelay();
+    return getMockRoadmap(displayName);
   });
   onPhaseEnd?.('Roadmap', 'done');
 
-  // Phase 4: Brief (uses startup name + richer research)
+  // Phase 4: Brief
   onPhaseStart?.('Brief');
-  if (!useMock) await notion.updateStatus(pageId, 'Generating Brief');
   const brief = await runPhase('Brief', async () => {
-    if (useMock) { await mockDelay(); return getMockBrief(displayName); }
-
-    // Idempotency: skip if brief sub-page already exists
-    if (await notion.subPageExists(pageId, `Brief — ${displayName}`)) {
-      onPhaseEnd?.('Brief', 'skipped (already exists)');
-      return { briefContent: 'Brief already exists.' };
-    }
-
-    const { briefContent } = await synthesizeBrief(displayName, startupName, description, research, roadmap);
-    await notion.writeSubPage(pageId, `Brief — ${displayName}`, briefContent);
-    return { briefContent };
+    await mockDelay();
+    return getMockBrief(displayName);
   });
   onPhaseEnd?.('Brief', 'done');
-
-  // Done!
-  if (!useMock) {
-    await notion.updateStatus(pageId, 'Ready');
-    await notion.resetTrigger(pageId);
-  }
 
   return { projectName: displayName, repoUrl: repo.repoUrl, research, startupName, roadmap, brief };
 }

@@ -49,30 +49,26 @@ async function main() {
 
           log.success(`\n✅ "${projectName}" is ready!`);
           log.info(`   📂 Repo: ${result.repoUrl}`);
-          log.info(`   📋 Issues: ${result.roadmap?.issueUrls?.length || 0} tasks created`);
+          log.info(`   📋 Issues: ${result.roadmap?.issueUrls?.length || result.roadmap?.tasks?.length || 0} tasks created`);
 
           if (useMock) {
-            // In mock mode, run only once
             outro('Mock run complete. Exiting.');
             process.exit(0);
           }
         } catch (err) {
-          if (err instanceof PhaseError) {
-            s.stop(`❌ Failed at ${err.phase}`);
-            log.error(`Pipeline error at "${err.phase}": ${err.message}`);
+          const phase = err instanceof PhaseError ? err.phase : 'Pipeline';
+          s.stop(`❌ Failed at ${phase}`);
+          log.error(`Pipeline error at "${phase}": ${err.message}`);
 
-            if (!useMock) {
-              try {
-                await updateStatus(page.id, 'Error');
-                await resetTrigger(page.id);
-              } catch {
-                // Best effort — don't crash if Notion update also fails
-              }
+          if (!useMock) {
+            try {
+              await updateStatus(page.id, 'Error');
+              await resetTrigger(page.id);
+            } catch {
+              // Best effort
             }
-            log.warn('Fix the issue and re-trigger the idea in Notion.\n');
-          } else {
-            throw err;
           }
+          log.warn('Fix the issue and re-trigger the idea in Notion.\n');
         }
       }
     } catch (err) {
