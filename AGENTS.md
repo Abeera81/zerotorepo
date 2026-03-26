@@ -2,34 +2,35 @@
 
 ## Project Overview & Stack
 **App:** ZeroToRepo
-**Overview:** A CLI-based automation engine that eliminates the "Initialization Gap" — the dead time between having an idea and pushing a first commit. It watches a Notion database for triggered ideas, runs competitor research via Brave Search + Groq (Llama-3), scaffolds a private GitHub repository with ghost commits (no local git clone), generates a labeled issue roadmap, and synthesizes an investor brief — all in under 60 seconds from a single checkbox click.
-**Stack:** Node.js v20+, Notion API (`@notionhq/client`), Groq API (`llama-3-70b-8192`), Brave Search API, Octokit (`@octokit/rest`), `@clack/prompts` (CLI UX), `dotenv`
+**Overview:** A CLI-based AI agent that eliminates the "Initialization Gap" — the dead time between having an idea and pushing a first commit. It watches a Notion database (via MCP) for triggered ideas, uses an LLM agent orchestrator (Groq function calling) to autonomously run competitor research (Brave Search), scaffold a private GitHub repository with ghost commits, generate a labeled issue roadmap, and synthesize an investor brief — all driven by AI tool-use decisions, not hardcoded sequences.
+**Stack:** Node.js v20+, `@modelcontextprotocol/sdk` (MCP client + server), `@notionhq/notion-mcp-server` (Notion MCP), Groq API (`llama-3.3-70b-versatile` with function calling), Brave Search API, Octokit (`@octokit/rest`), `@clack/prompts` (CLI UX), `dotenv`
 **Critical Constraints:**
 - 48-hour hackathon build window
 - $0 total API cost (all free tiers)
 - No local `git clone` — use GitHub Data API for ghost commits
 - All secrets in `.env` (gitignored), never committed
 - Notion is both the trigger and the dashboard (no separate UI)
+- **MCP is mandatory** — Notion operations go through Notion MCP server; ZeroToRepo itself is exposed as an MCP server
 
 ## Setup & Commands
 Execute these commands for standard development workflows. Do not invent new package manager commands.
 - **Setup:** `npm install`
 - **Development:** `node src/index.js`
 - **Mock Mode:** `node src/index.js --mock` (offline demo without API calls)
+- **MCP Server:** `node src/mcp-server.js` (expose ZeroToRepo tools to AI assistants)
 - **Reset Notion DB:** `node scripts/reset-db.js`
-- **Linting & Formatting:** `npm run lint` (if configured)
 
 ## Protected Areas
 Do NOT modify these areas without explicit human approval:
 - **Environment Secrets:** `.env` file and any files containing API keys.
 - **Prompt Templates:** `prompts/*.txt` — these are tuned for output quality; changes affect all generated content.
-- **Notion Database Schema:** The Notion properties (`Name`, `Status`, `Trigger`, `GitHub URL`) must match exactly.
+- **Notion Database Schema:** The Notion properties (`Name`, `Status`, `Trigger`, `GitHub URL`, `Description`) must match exactly.
 
 ## Coding Conventions
-- **Language:** JavaScript (ES Modules or CommonJS — be consistent with what's initialized).
+- **Language:** JavaScript (CommonJS — `require`/`module.exports`).
 - **Formatting:** Use consistent indentation (2 spaces). No trailing whitespace.
-- **Architecture:** One module per concern: `notion.js`, `research.js`, `scaffold.js`, `roadmap.js`, `brief.js`, `stateMachine.js`, `config.js`.
-- **Error Handling:** Every external API call must be wrapped in try/catch. Use the `runPhase` pattern with retry for transient errors (429, 5xx). Never swallow exceptions.
+- **Architecture:** One module per concern: `notion.js`, `research.js`, `scaffold.js`, `roadmap.js`, `brief.js`, `agent.js`, `mcp-client.js`, `mcp-server.js`, `stateMachine.js`, `config.js`.
+- **Error Handling:** Every external API call must be wrapped in try/catch. Agent tool errors are caught and reported back to the LLM for recovery. Never swallow exceptions.
 - **Naming:** camelCase for functions/variables, PascalCase for classes, UPPER_SNAKE for constants.
 - **Type Safety:** Validate all Groq JSON responses against expected schemas before using them.
 
@@ -58,6 +59,6 @@ These rules apply across all AI coding assistants:
 - Do NOT commit secrets or API keys
 
 ## Current Phase
-**Phase 1 — Foundation (Hours 0–6)**
-See `MEMORY.md` for active task and next steps.
+**Phase 4 — Testing & Polish**
+See `MEMORY.md` for active task, known issues, and next steps.
 See `agent_docs/` for detailed tech stack, testing, and requirements.

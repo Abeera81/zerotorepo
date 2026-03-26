@@ -1,6 +1,6 @@
 # Technical Design Document: ZeroToRepo MVP
 
-> **48-Hour Hackathon Build** · Node.js · Notion → GitHub Pipeline · AI-Powered
+> **48-Hour Hackathon Build** · Node.js · MCP + AI Agent · Notion → GitHub Pipeline
 
 ---
 
@@ -8,11 +8,12 @@
 
 | Field | Value |
 | :--- | :--- |
-| **System** | ZeroToRepo — CLI-based Automation Engine |
+| **System** | ZeroToRepo — LLM-Driven AI Agent with MCP Integration |
 | **Runtime** | Node.js v20+ (local execution) |
-| **Primary Goal** | Turn a Notion idea into a fully scaffolded GitHub repo in **< 60 seconds** |
+| **Primary Goal** | Turn a Notion idea into a fully scaffolded GitHub repo in **< 2 minutes** |
 | **Trigger** | Single checkbox click in Notion |
-| **Output** | Private GitHub repo + labeled issues + competitor research + investor brief |
+| **Output** | Private GitHub repo + labeled issues + deep competitor research + startup name + investor brief |
+| **Key Innovation** | LLM agent decides tool execution order via Groq function calling; Notion ops via MCP protocol |
 | **Build Window** | 48 hours (hackathon) |
 | **Total API Cost** | $0 (all free tiers) |
 
@@ -30,45 +31,45 @@ flowchart TB
         BP[Brief Sub-Page]
     end
 
+    subgraph MCP["🔌 MCP Layer"]
+        NM[Notion MCP Server<br/>stdio transport]
+        ZM[ZeroToRepo MCP Server<br/>7 tools exposed]
+    end
+
     subgraph Engine["⚙️ Node.js Engine (Local)"]
         PL[Polling Loop<br/>every 5s]
-        SM[State Machine<br/>Orchestrator]
-        P1[Phase 1<br/>Research]
-        P2[Phase 2<br/>Scaffold]
-        P3[Phase 3<br/>Roadmap]
-        P4[Phase 4<br/>Brief]
+        AG[LLM Agent<br/>Groq Function Calling]
+        TR[Tool Registry<br/>10 tools]
+        P1[Research Module<br/>5-8 Brave searches]
+        P2[Scaffold Module<br/>Ghost commits]
+        P3[Roadmap Module<br/>Feature-focused]
+        P4[Brief Module<br/>Investor synthesis]
     end
 
     subgraph External["🌐 External APIs"]
         Brave[Brave Search API]
-        Groq[Groq API<br/>Llama-3-70B]
+        Groq[Groq API<br/>Llama-3.3-70B]
         GH[GitHub API<br/>Octokit]
     end
 
-    DB -- "Trigger=true,<br/>Status=Idea" --> PL
-    PL --> SM
-    SM --> P1
-    P1 --> Brave
-    Brave --> P1
-    P1 --> Groq
-    Groq --> P1
-    P1 -- "gaps" --> RP
-    SM --> P2
-    P2 --> GH
-    GH -- "repoUrl" --> P2
-    P2 -- "GitHub URL" --> DB
-    SM --> P3
-    P3 --> Groq
-    Groq --> P3
-    P3 --> GH
-    GH -- "issueUrls" --> P3
-    SM --> P4
-    P4 --> Groq
-    Groq --> P4
-    P4 -- "brief" --> BP
-    SM -- "Status updates" --> DB
+    DB -- "Trigger=true" --> NM
+    NM -- "MCP stdio" --> PL
+    PL --> AG
+    AG -- "function calling" --> Groq
+    Groq -- "tool decisions" --> AG
+    AG --> TR
+    TR --> P1 --> Brave
+    TR --> P2 --> GH
+    TR --> P3 --> Groq
+    TR --> P4 --> Groq
+    P1 -- "research" --> NM --> RP
+    P4 -- "brief" --> NM --> BP
+    P2 -- "GitHub URL" --> NM --> DB
+
+    ZM -. "AI assistants" .-> TR
 
     style Notion fill:#f5f5f5,stroke:#333,color:#000
+    style MCP fill:#e8f0fe,stroke:#4285f4,color:#000
     style Engine fill:#e8f4fd,stroke:#0969da,color:#000
     style External fill:#fff8e1,stroke:#d4a017,color:#000
 ```
@@ -79,52 +80,72 @@ flowchart TB
 sequenceDiagram
     actor User
     participant Notion as Notion DB
+    participant MCP as Notion MCP Server
     participant Engine as Node.js Engine
+    participant Agent as Groq Agent
     participant Brave as Brave Search
-    participant Groq as Groq (Llama-3)
+    participant Groq as Groq (Llama-3.3)
     participant GitHub as GitHub API
 
     User->>Notion: ☑️ Check "Trigger" checkbox
 
     loop Every 5 seconds
-        Engine->>Notion: Poll for Trigger=true & Status=Idea
+        Engine->>MCP: Poll via API-query-data-source
+        MCP->>Notion: Query Trigger=true & Status=Idea
     end
 
-    Notion-->>Engine: Page found (projectName, pageId)
+    Notion-->>MCP: Page found
+    MCP-->>Engine: Page data (name, description, pageId)
 
-    Note over Engine: Phase 1 — Research
-    Engine->>Notion: Set Status → "Researching"
-    Engine->>Brave: Search "{projectName} competitors"
-    Brave-->>Engine: Top 10 results
-    Engine->>Brave: Search "{projectName} open source alternatives"
-    Brave-->>Engine: Top 10 results
-    Engine->>Groq: Analyze results → identify gaps (JSON)
-    Groq-->>Engine: { gaps: [...] }
-    Engine->>Notion: Create Research sub-page with gap analysis
+    Note over Agent: LLM Agent Loop Begins
+    Engine->>Agent: Start agent with idea context
 
-    Note over Engine: Phase 2 — Scaffold
-    Engine->>Notion: Set Status → "Scaffolding"
-    Engine->>GitHub: Create private repo "{projectName}"
-    GitHub-->>Engine: { repoUrl, owner, repo }
-    Engine->>GitHub: PUT README.md (ghost commit)
-    Engine->>GitHub: PUT package.json (ghost commit)
-    Engine->>GitHub: PUT .gitignore (ghost commit)
-    Engine->>GitHub: PUT src/index.js (ghost commit)
-    Engine->>Notion: Set GitHub URL property
+    Agent->>Groq: What tool to call next?
+    Groq-->>Agent: → update_notion_status("Researching")
+    Agent->>MCP: Set Status → "Researching"
 
-    Note over Engine: Phase 3 — Roadmap
-    Engine->>Groq: Generate task roadmap (JSON array)
-    Groq-->>Engine: { tasks: [{title, body, priority, label}...] }
-    loop For each task
-        Engine->>GitHub: Create Issue with labels
-    end
+    Agent->>Groq: Next?
+    Groq-->>Agent: → deep_search
+    Agent->>Brave: 5-8 targeted search queries
+    Brave-->>Agent: Search results
 
-    Note over Engine: Phase 4 — Brief
-    Engine->>Notion: Set Status → "Generating Brief"
-    Engine->>Groq: Synthesize investor brief from research + roadmap
-    Groq-->>Engine: { briefContent: "..." }
-    Engine->>Notion: Create Brief sub-page
-    Engine->>Notion: Set Status → "Ready" ✅
+    Agent->>Groq: Next?
+    Groq-->>Agent: → analyze_market
+    Agent->>Groq: Analyze competitors, gaps, market insights
+    Groq-->>Agent: Structured research JSON
+
+    Agent->>Groq: Next?
+    Groq-->>Agent: → generate_startup_name
+    Agent->>Groq: Generate creative name + tagline
+    Groq-->>Agent: { name, tagline, reasoning }
+
+    Agent->>Groq: Next?
+    Groq-->>Agent: → save_research_to_notion
+    Agent->>MCP: Create "Research — {name}" sub-page
+
+    Agent->>Groq: Next?
+    Groq-->>Agent: → create_github_repo
+    Agent->>GitHub: Create private repo + ghost commit scaffold
+    GitHub-->>Agent: { repoUrl, owner, repo }
+
+    Agent->>Groq: Next?
+    Groq-->>Agent: → set_github_url
+    Agent->>MCP: Set GitHub URL on Notion page
+
+    Agent->>Groq: Next?
+    Groq-->>Agent: → create_roadmap_issues
+    Agent->>Groq: Generate 7-10 implementable tasks
+    Agent->>GitHub: Create labeled issues
+    GitHub-->>Agent: Issue URLs
+
+    Agent->>Groq: Next?
+    Groq-->>Agent: → write_investor_brief
+    Agent->>Groq: Synthesize investor brief
+    Agent->>MCP: Create "Brief — {name}" sub-page
+
+    Agent->>Groq: Next?
+    Groq-->>Agent: → finalize_idea
+    Agent->>MCP: Set Status → "Ready" ✅, uncheck Trigger
 ```
 
 ### 2.3 State Machine
@@ -132,8 +153,8 @@ sequenceDiagram
 ```mermaid
 stateDiagram-v2
     [*] --> Idea
-    Idea --> Researching: Trigger detected
-    Researching --> Scaffolding: Research complete
+    Idea --> Researching: Trigger detected (via MCP)
+    Researching --> Scaffolding: Research + name complete
     Scaffolding --> GeneratingBrief: Repo + Issues created
     GeneratingBrief --> Ready: Brief written
 
@@ -141,24 +162,43 @@ stateDiagram-v2
     Scaffolding --> Error: Exception
     GeneratingBrief --> Error: Exception
 
-    Error --> Idea: Manual reset
+    Error --> Idea: Re-trigger (auto-reset)
 
     state Researching {
-        [*] --> BraveSearch
-        BraveSearch --> GroqGapAnalysis
-        GroqGapAnalysis --> WriteResearchToNotion
+        [*] --> DeepSearch
+        DeepSearch --> MarketAnalysis: 5-8 Brave queries
+        MarketAnalysis --> NameGeneration: Groq analysis
+        NameGeneration --> SaveToNotion: Creative name + tagline
     }
 
     state Scaffolding {
         [*] --> CreateRepo
-        CreateRepo --> GhostCommitFiles
-        GhostCommitFiles --> CreateIssues
+        CreateRepo --> GhostCommitFiles: Rich README + scaffold
+        GhostCommitFiles --> CreateIssues: 7-10 feature issues
     }
 
     state GeneratingBrief {
         [*] --> GroqSynthesis
         GroqSynthesis --> WriteBriefToNotion
     }
+```
+
+### 2.4 LLM Agent Orchestration
+
+Unlike a hardcoded pipeline, the **LLM agent decides** which tool to call next. The orchestration loop:
+
+```mermaid
+flowchart TD
+    A[User prompt with idea context] --> B[Groq LLM with tool definitions]
+    B --> C{Tool call or stop?}
+    C -- "tool_call" --> D[Execute tool from registry]
+    D --> E[Store result in context]
+    E --> F[Send summary back to LLM]
+    F --> B
+    C -- "stop" --> G[Return final results]
+
+    style B fill:#e8f0fe,stroke:#4285f4,color:#000
+    style D fill:#e8f4fd,stroke:#0969da,color:#000
 ```
 
 ---
@@ -168,8 +208,9 @@ stateDiagram-v2
 | Layer | Technology | Rationale |
 | :--- | :--- | :--- |
 | **Runtime** | Node.js v20+ | Native async/await, excellent JSON handling, fast startup |
-| **State/UI** | Notion API (`@notionhq/client`) | Already used for planning; acts as dashboard with zero extra UI work |
-| **AI** | Groq + `llama-3-70b-8192` | Fastest LLM inference available (~500 tok/s); free tier = 30 RPM / 14.4K TPD |
+| **MCP** | `@modelcontextprotocol/sdk` + `@notionhq/notion-mcp-server` | Hackathon requirement; Notion ops via MCP protocol (stdio transport) |
+| **AI Orchestration** | Groq + `llama-3.3-70b-versatile` (function calling) | LLM agent decides tool order; free tier = 100K TPD |
+| **State/UI** | Notion API (via MCP) | Already used for planning; acts as dashboard with zero extra UI work |
 | **Search** | Brave Search API | Developer-friendly JSON, 2K free queries/month, no SERP scraping needed |
 | **Git** | Octokit (`@octokit/rest`) | Official GitHub SDK; Data API enables ghost commits (no `git clone`) |
 | **CLI UX** | `@clack/prompts` | Beautiful terminal spinners/progress for live demo |
@@ -182,18 +223,26 @@ stateDiagram-v2
 ```
 zerotorepo/
 ├── src/
-│   ├── index.js            # Entry point — polling loop + CLI output
-│   ├── stateMachine.js     # State transitions & phase orchestration
-│   ├── notion.js           # Notion API helpers (poll, update, write)
-│   ├── research.js         # Brave Search + Groq gap analysis
-│   ├── scaffold.js         # GitHub repo creation + ghost commits
-│   ├── roadmap.js          # Groq roadmap generation + issue creation
+│   ├── index.js            # Entry point — polling loop + CLI + graceful shutdown
+│   ├── agent.js            # 🤖 LLM agent — Groq function calling, 10 tools, context injection
+│   ├── stateMachine.js     # Routes: live → agent, mock → sequential pipeline
+│   ├── mcp-client.js       # MCP client — spawns Notion MCP server (stdio transport)
+│   ├── mcp-server.js       # ZeroToRepo as MCP server (7 tools for AI assistants)
+│   ├── notion.js           # Notion ops via MCP (query, patch, post, delete blocks)
+│   ├── research.js         # Deep multi-query Brave search + Groq analysis + name gen
+│   ├── scaffold.js         # GitHub repo creation + ghost commits + rich README
+│   ├── roadmap.js          # Groq roadmap generation (feature-focused, no boilerplate)
 │   ├── brief.js            # Investor brief synthesis
 │   └── config.js           # Environment config validation
 ├── prompts/
-│   ├── gap-analysis.txt    # System prompt for competitor gap analysis
-│   ├── roadmap.txt         # System prompt for task roadmap generation
-│   └── brief.txt           # System prompt for investor brief synthesis
+│   ├── gap-analysis.txt    # System prompt for deep competitor analysis
+│   ├── roadmap.txt         # System prompt for implementable task generation
+│   ├── brief.txt           # System prompt for investor brief synthesis
+│   └── name-generation.txt # System prompt for creative startup naming
+├── scripts/
+│   └── reset-db.js         # Reset Notion DB via MCP (status, trigger, sub-pages)
+├── agent_docs/             # Tech stack docs, code patterns, testing guides
+├── mcp.json                # MCP server config for Claude Desktop / VS Code
 ├── .env.example            # Template with all required keys
 ├── .gitignore
 ├── package.json
@@ -215,14 +264,14 @@ const REQUIRED = [
   'NOTION_DATABASE_ID',   // 32-char hex ID of the Ideas database
   'GROQ_API_KEY',         // Groq API key (gsk_*)
   'BRAVE_API_KEY',        // Brave Search API key
-  'GITHUB_TOKEN',         // GitHub PAT with repo scope
+  'GITHUB_TOKEN',         // GitHub fine-grained PAT (Read & Write: Administration, Contents, Issues)
   'GITHUB_OWNER',         // GitHub username or org for new repos
 ];
 
 // Exported config object
 module.exports = {
   notion: { apiKey, databaseId },
-  groq:   { apiKey, model: 'llama-3-70b-8192' },
+  groq:   { apiKey, model: 'llama-3.3-70b-versatile' },
   brave:  { apiKey },
   github: { token, owner },
   polling: { intervalMs: 5000 },
@@ -231,34 +280,42 @@ module.exports = {
 
 ---
 
-### 5.2 `notion.js` — Notion API Helpers
+### 5.2 `notion.js` — Notion Operations via MCP
 
-| Function | Signature | Description |
-| :--- | :--- | :--- |
-| `pollForTrigger` | `() → Promise<Page \| null>` | Queries DB for pages with `Trigger == true` AND `Status == Idea`; returns first match |
-| `updateStatus` | `(pageId, status) → Promise<void>` | Sets the Status property to one of: `Researching`, `Scaffolding`, `Generating Brief`, `Ready`, `Error` |
-| `writeSubPage` | `(parentId, title, markdownContent) → Promise<string>` | Creates a child page under the idea with rich-text blocks; returns new page ID |
-| `setGitHubUrl` | `(pageId, url) → Promise<void>` | Sets the `GitHub URL` property on the idea row |
-| `resetTrigger` | `(pageId) → Promise<void>` | Unchecks the `Trigger` checkbox to prevent re-processing |
+All Notion operations go through the Notion MCP Server (`@notionhq/notion-mcp-server`) via stdio transport. The MCP client (`mcp-client.js`) spawns the server as a child process.
+
+| Function | Signature | MCP Tool Used | Description |
+| :--- | :--- | :--- | :--- |
+| `pollForTrigger` | `() → Promise<Page \| null>` | `API-query-data-source` | Queries DB for pages with `Trigger == true` AND (`Status == Idea` OR `Status == Error`) |
+| `updateStatus` | `(pageId, status) → Promise<void>` | `API-patch-page` | Sets the Status property |
+| `writeSubPage` | `(parentId, title, markdown) → Promise<string>` | `API-post-page` | Creates a child page with rich-text blocks |
+| `setGitHubUrl` | `(pageId, url) → Promise<void>` | `API-patch-page` | Sets the `GitHub URL` property |
+| `resetTrigger` | `(pageId) → Promise<void>` | `API-patch-page` | Unchecks the `Trigger` checkbox |
+| `subPageExists` | `(parentId, title) → Promise<boolean>` | `API-get-block-children` | Checks for idempotency |
+| `disconnect` | `() → Promise<void>` | — | Gracefully closes MCP connection |
 
 **Notion Database Schema (exact property names):**
 
 | Property Name | Type | Values / Format |
 | :--- | :--- | :--- |
 | `Name` | `title` | Project name string |
+| `Description` | `rich_text` | Optional idea context for deeper research |
 | `Status` | `status` | `Idea` · `Researching` · `Scaffolding` · `Generating Brief` · `Ready` · `Error` |
 | `Trigger` | `checkbox` | `true` / `false` |
 | `GitHub URL` | `url` | `https://github.com/{owner}/{repo}` |
 
-**Key API call — polling query:**
+**Key MCP call — polling query:**
 
 ```js
-const response = await notion.databases.query({
-  database_id: config.notion.databaseId,
+const result = await mcpClient.callTool('API-query-data-source', {
+  data_source_id: config.notion.databaseId,
   filter: {
     and: [
-      { property: 'Trigger',  checkbox: { equals: true } },
-      { property: 'Status', status: { equals: 'Idea' } },
+      { property: 'Trigger', checkbox: { equals: true } },
+      { or: [
+        { property: 'Status', status: { equals: 'Idea' } },
+        { property: 'Status', status: { equals: 'Error' } },
+      ]},
     ],
   },
   page_size: 1,
@@ -267,33 +324,33 @@ const response = await notion.databases.query({
 
 ---
 
-### 5.3 `research.js` — Brave Search + Groq Gap Analysis
+### 5.3 `research.js` — Deep Multi-Query Research + Name Generation
 
 | Function | Signature | Description |
 | :--- | :--- | :--- |
-| `searchBrave` | `(query) → Promise<object[]>` | Calls Brave Web Search; returns top 10 results `[{title, url, description}]` |
-| `analyzeGaps` | `(projectName, searchResults) → Promise<{gaps: string}>` | Sends results to Groq with gap-analysis prompt; returns structured gaps |
-| `writeResearchToNotion` | `(pageId, gaps) → Promise<void>` | Creates a "Research — {name}" sub-page with formatted gap analysis |
+| `deepSearch` | `(name, desc) → Promise<SearchSet[]>` | Runs 5-8 targeted Brave searches with keyword extraction for long descriptions |
+| `analyzeGaps` | `(name, desc, searchSets) → Promise<ResearchData>` | Sends all results to Groq for competitor/gap/market analysis |
+| `generateStartupName` | `(name, desc, research) → Promise<NameData>` | Groq generates creative name + tagline from research context |
+| `formatResearchMarkdown` | `(name, nameData, research) → string` | Formats rich markdown for Notion sub-page |
 
-**Brave API call:**
+**Deep Search Strategy:**
 
-```
-GET https://api.search.brave.com/res/v1/web/search?q={query}&count=10
-Headers: { "X-Subscription-Token": BRAVE_API_KEY }
+```js
+// Extract keywords from long descriptions to build short queries (<100 chars)
+const queries = buildSearchQueries(projectName, description);
+// Runs: "{name} competitors", "{name} market size", "{keywords} alternatives",
+//        "{keywords} trends", "{name} pricing model", etc.
+// Rate limited: 1 req/s, failed queries logged and skipped (resilient)
 ```
 
 **Groq parameters (gap analysis):**
 
 ```json
 {
-  "model": "llama-3-70b-8192",
+  "model": "llama-3.3-70b-versatile",
   "temperature": 0.3,
-  "max_tokens": 2048,
-  "response_format": { "type": "json_object" },
-  "messages": [
-    { "role": "system", "content": "<gap-analysis system prompt>" },
-    { "role": "user", "content": "Project: {name}\n\nSearch Results:\n{formatted results}" }
-  ]
+  "max_tokens": 2500,
+  "response_format": { "type": "json_object" }
 }
 ```
 
@@ -301,12 +358,19 @@ Headers: { "X-Subscription-Token": BRAVE_API_KEY }
 
 ```json
 {
-  "gaps": [
-    { "gap": "No real-time collaboration support", "opportunity": "Build with CRDTs for live editing" },
-    { "gap": "Poor mobile experience", "opportunity": "PWA-first responsive architecture" },
-    { "gap": "No plugin ecosystem", "opportunity": "Design an extension API from day one" }
+  "competitors": [
+    { "name": "PetCo", "url": "https://petco.com", "strengths": [...], "weaknesses": [...], "pricing": "$20-50/mo" }
   ],
-  "summary": "The competitive landscape shows..."
+  "gaps": [
+    { "gap": "No organic pet food delivery", "severity": "high", "opportunity": "Subscription-based organic delivery" }
+  ],
+  "marketInsights": {
+    "targetAudience": "Urban pet owners aged 25-45",
+    "marketSize": "$5.2B growing at 12% YoY",
+    "trends": ["Organic pet food", "Pet wellness tech", "Adoption-first retail"]
+  },
+  "techRecommendations": ["React Native for mobile app", "Shopify for e-commerce"],
+  "summary": "The pet retail space in Islamabad..."
 }
 ```
 
@@ -339,7 +403,7 @@ This commits **all files atomically in one commit** — much faster than individ
 
 | File | Content Source |
 | :--- | :--- |
-| `README.md` | Template with project name, description from Notion, and gap summary |
+| `README.md` | Rich README with startup name, tagline, competitor table, gap analysis, tech recommendations |
 | `package.json` | Generated with project name, version `0.1.0`, MIT license |
 | `.gitignore` | Standard Node.js `.gitignore` |
 | `src/index.js` | Placeholder: `// TODO: Start building {projectName}` |
@@ -364,23 +428,20 @@ This commits **all files atomically in one commit** — much faster than individ
 
 | Function | Signature | Description |
 | :--- | :--- | :--- |
-| `generateRoadmap` | `(projectName, gaps) → Promise<{tasks: Task[]}>` | Prompts Groq for a JSON array of 7–10 prioritized tasks |
-| `parseAndValidateJSON` | `(response) → object` | Safely parses Groq output; throws if schema doesn't match |
+| `generateRoadmap` | `(name, desc, research) → Promise<{tasks: Task[]}>` | Prompts Groq for 7–10 implementable feature tasks (no boilerplate) |
 
 **Groq parameters (roadmap):**
 
 ```json
 {
-  "model": "llama-3-70b-8192",
+  "model": "llama-3.3-70b-versatile",
   "temperature": 0.4,
-  "max_tokens": 3000,
-  "response_format": { "type": "json_object" },
-  "messages": [
-    { "role": "system", "content": "<roadmap system prompt>" },
-    { "role": "user", "content": "Project: {name}\nGaps: {gaps}\nGenerate 7-10 tasks." }
-  ]
+  "max_tokens": 2000,
+  "response_format": { "type": "json_object" }
 }
 ```
+
+**Key design decision:** The roadmap prompt explicitly excludes boilerplate tasks (e.g., "set up project", "create README") since those are already scaffolded. Only feature-level, implementable tasks are generated.
 
 **Expected task schema:**
 
@@ -413,20 +474,15 @@ Additional labels applied from the `label` field: `setup`, `feature`, `research`
 
 | Function | Signature | Description |
 | :--- | :--- | :--- |
-| `synthesizeBrief` | `(projectName, research, roadmap) → Promise<{briefContent: string}>` | Combines research + roadmap into a compelling 1-page brief |
-| `writeBriefToNotion` | `(pageId, briefContent) → Promise<void>` | Creates a "Brief — {name}" sub-page under the idea |
+| `synthesizeBrief` | `(displayName, startupName, desc, research, roadmap) → Promise<{briefContent}>` | Combines research + roadmap into a compelling 1-page brief |
 
 **Groq parameters (brief):**
 
 ```json
 {
-  "model": "llama-3-70b-8192",
+  "model": "llama-3.3-70b-versatile",
   "temperature": 0.6,
-  "max_tokens": 4000,
-  "messages": [
-    { "role": "system", "content": "<brief system prompt>" },
-    { "role": "user", "content": "Project: {name}\nResearch: {gaps}\nRoadmap: {tasks}\nWrite a 1-page investor brief." }
-  ]
+  "max_tokens": 2500
 }
 ```
 
@@ -440,54 +496,97 @@ Additional labels applied from the `label` field: `setup`, `feature`, `research`
 
 ---
 
-### 5.7 `stateMachine.js` — Orchestrator
+### 5.7 `agent.js` — LLM Agent Orchestrator
 
-The central orchestrator that drives an idea through all four phases in sequence.
+The central innovation: instead of a hardcoded pipeline, an **LLM agent** decides which tool to call next using Groq's function calling API.
+
+**Tool Registry (10 tools):**
+
+| Tool | Phase | What It Does |
+| :--- | :--- | :--- |
+| `update_notion_status` | All | Update idea status in Notion via MCP |
+| `deep_search` | Research | Run 5-8 Brave searches |
+| `analyze_market` | Research | Groq competitor/gap/market analysis |
+| `generate_startup_name` | Research | Creative name + tagline from research |
+| `save_research_to_notion` | Research | Save rich research report via MCP |
+| `create_github_repo` | Scaffold | Create repo + ghost commit scaffold |
+| `set_github_url` | Scaffold | Set GitHub URL on Notion page via MCP |
+| `create_roadmap_issues` | Roadmap | Generate & create 7-10 GitHub Issues |
+| `write_investor_brief` | Brief | Synthesize brief → Notion via MCP |
+| `finalize_idea` | Done | Mark Ready, uncheck trigger |
+
+**Context Injection:** Large payloads (search results, research data, startup name) are stored in a shared context object and automatically injected into tool arguments — the LLM only sees compact summaries.
+
+**Token Optimization:**
+- Message history trimmed to last 10 messages per iteration
+- Tool results always summarized (no raw payloads sent to LLM)
+- Agent max_tokens: 1024 (only needs short tool-call decisions)
+- Temperature: 0 (deterministic tool selection)
 
 ```js
-async function processIdea(page) {
-  const pageId = page.id;
-  const projectName = extractTitle(page);
+async function runAgent(ideaName, description, notionPageId, options) {
+  const tools = buildToolsForLLM();
+  const context = {}; // Shared state between tool calls
 
-  // Phase 1: Research
-  await notion.updateStatus(pageId, 'Researching');
-  const research = await runPhase('Research', async () => {
-    const results1 = await searchBrave(`${projectName} competitors`);
-    const results2 = await searchBrave(`${projectName} open source alternatives`);
-    const gaps = await analyzeGaps(projectName, [...results1, ...results2]);
-    await writeResearchToNotion(pageId, gaps);
-    return gaps;
-  });
+  while (iterations < MAX_ITERATIONS) {
+    // Trim history to control token usage
+    const trimmed = trimMessages(messages, 10);
 
-  // Phase 2: Scaffold
-  await notion.updateStatus(pageId, 'Scaffolding');
-  const repo = await runPhase('Scaffold', async () => {
-    const { repoUrl, owner, repo } = await createRepo(projectName);
-    await ghostCommit(owner, repo, generateScaffoldFiles(projectName, research));
-    await notion.setGitHubUrl(pageId, repoUrl);
-    return { repoUrl, owner, repo };
-  });
+    const completion = await groq.chat.completions.create({
+      model: 'llama-3.3-70b-versatile',
+      temperature: 0,
+      max_tokens: 1024,
+      tools,
+      tool_choice: 'auto',
+      messages: trimmed,
+    });
 
-  // Phase 3: Roadmap → Issues
-  const roadmap = await runPhase('Roadmap', async () => {
-    const { tasks } = await generateRoadmap(projectName, research);
-    const issueUrls = await createIssues(repo.owner, repo.repo, tasks);
-    return { tasks, issueUrls };
-  });
+    // If LLM says stop, we're done
+    if (choice.finish_reason === 'stop') break;
 
-  // Phase 4: Brief
-  await notion.updateStatus(pageId, 'Generating Brief');
-  await runPhase('Brief', async () => {
-    const { briefContent } = await synthesizeBrief(projectName, research, roadmap);
-    await writeBriefToNotion(pageId, briefContent);
-    return { briefContent };
-  });
-
-  // Done
-  await notion.updateStatus(pageId, 'Ready');
-  await notion.resetTrigger(pageId);
+    // Execute each tool call, inject context, store results
+    for (const toolCall of assistantMessage.tool_calls) {
+      const result = await TOOL_REGISTRY[toolCall.function.name].fn(args);
+      // Store in context for future tools
+      // Send compact summary back to LLM
+    }
+  }
 }
 ```
+
+### 5.8 `stateMachine.js` — Mode Router
+
+Routes between two modes:
+- **Live mode:** Delegates to `agent.js` — LLM-driven orchestration
+- **Mock mode:** Sequential pipeline with hardcoded fake data (no API calls)
+
+### 5.9 `mcp-client.js` — MCP Client
+
+Spawns the Notion MCP server as a child process and communicates via stdio:
+
+```js
+const transport = new StdioClientTransport({
+  command: 'node',
+  args: [require.resolve('@notionhq/notion-mcp-server/bin/cli.mjs')],
+  env: { NOTION_TOKEN: config.notion.apiKey },
+});
+const client = new Client({ name: 'zerotorepo', version: '1.0.0' });
+await client.connect(transport);
+```
+
+### 5.10 `mcp-server.js` — ZeroToRepo as MCP Server
+
+Exposes 7 high-level tools so any MCP-compatible AI assistant can drive the pipeline:
+
+| Tool | Description |
+| :--- | :--- |
+| `process_idea` | Run the full pipeline for a given idea |
+| `research_competitors` | Deep research only |
+| `generate_name` | Generate startup name from research |
+| `scaffold_repo` | Create GitHub repo with scaffold |
+| `generate_roadmap` | Generate and create roadmap issues |
+| `generate_brief` | Synthesize investor brief |
+| `list_notion_ideas` | List all ideas in the Notion database |
 
 ---
 
@@ -495,37 +594,40 @@ async function processIdea(page) {
 
 ```mermaid
 flowchart LR
-    subgraph P1["Phase 1: Research"]
-        P1out["{ gaps: Gap[],<br/>rawResults: object[] }"]
+    subgraph P1["Research Phase"]
+        P1out["{ competitors[], gaps[],<br/>marketInsights, techRecs,<br/>startupName, tagline }"]
     end
 
-    subgraph P2["Phase 2: Scaffold"]
-        P2out["{ repoUrl: string,<br/>owner: string,<br/>repo: string }"]
+    subgraph P2["Scaffold Phase"]
+        P2out["{ repoUrl, owner, repo }"]
     end
 
-    subgraph P3["Phase 3: Roadmap"]
-        P3out["{ tasks: Task[],<br/>issueUrls: string[] }"]
+    subgraph P3["Roadmap Phase"]
+        P3out["{ tasks[], issueUrls[] }"]
     end
 
-    subgraph P4["Phase 4: Brief"]
-        P4out["{ briefContent: string }"]
+    subgraph P4["Brief Phase"]
+        P4out["{ briefContent }"]
     end
 
-    P1out -- "gaps feed<br/>scaffold README" --> P2
-    P1out -- "gaps feed<br/>roadmap prompt" --> P3
-    P1out -- "research feeds<br/>brief prompt" --> P4
-    P2out -- "repoUrl needed<br/>for issue creation" --> P3
+    P1out -- "research + name feed<br/>rich README" --> P2
+    P1out -- "competitors + gaps feed<br/>roadmap prompt" --> P3
+    P1out -- "full research feeds<br/>brief prompt" --> P4
+    P2out -- "owner/repo needed<br/>for issue creation" --> P3
     P3out -- "roadmap feeds<br/>brief prompt" --> P4
 ```
+
+**Context injection in agent.js** handles this data flow automatically — large objects are stored in a shared `context` object and injected into tool arguments without the LLM needing to pass them.
 
 ### Phase Output Contracts
 
 | Phase | Output Type | Shape |
 | :--- | :--- | :--- |
-| **Phase 1** (Research) | `ResearchResult` | `{ gaps: Array<{gap: string, opportunity: string}>, summary: string, rawResults: object[] }` |
-| **Phase 2** (Scaffold) | `ScaffoldResult` | `{ repoUrl: string, owner: string, repo: string }` |
-| **Phase 3** (Roadmap) | `RoadmapResult` | `{ tasks: Array<{title: string, description: string, priority: "high"\|"medium"\|"low", label: string}>, issueUrls: string[] }` |
-| **Phase 4** (Brief) | `BriefResult` | `{ briefContent: string }` |
+| **Research** | `ResearchResult` | `{ competitors: Array<{name, url, strengths[], weaknesses[], pricing}>, gaps: Array<{gap, severity, opportunity}>, marketInsights: {targetAudience, marketSize, trends[]}, techRecommendations: string[], summary: string }` |
+| **Name Gen** | `NameResult` | `{ name: string, tagline: string, reasoning: string }` |
+| **Scaffold** | `ScaffoldResult` | `{ repoUrl: string, owner: string, repo: string }` |
+| **Roadmap** | `RoadmapResult` | `{ tasks: Array<{title, description, priority, label}>, issueUrls: string[] }` |
+| **Brief** | `BriefResult` | `{ briefContent: string }` |
 
 ---
 
@@ -631,47 +733,73 @@ This allows safe re-runs if the process crashes mid-pipeline.
 
 ---
 
-## 9. MCP-Accelerated Development Workflow
+## 9. MCP Integration (Core Architecture)
 
-ZeroToRepo is built **with AI assistance at every step**. MCP (Model Context Protocol) servers give the AI assistant direct access to each API, eliminating guesswork.
+MCP (Model Context Protocol) is a **core runtime component**, not just a development aid. ZeroToRepo uses MCP in two ways:
 
-### 9.1 Notion MCP
+### 9.1 As MCP Client — Consuming Notion MCP Server
 
-| Step | MCP Prompt | What You Learn |
+All Notion API operations go through the official `@notionhq/notion-mcp-server` (v2.2.1), spawned as a child process via stdio transport.
+
+| MCP Tool Used | Purpose | Called By |
 | :--- | :--- | :--- |
-| 1 | *"Read my Notion database schema for {DATABASE_ID}"* | Exact property names, IDs, and types — no manual inspection |
-| 2 | *"Query pages where Trigger is checked"* | Validate filter syntax before writing code |
-| 3 | *"Update the status of page {ID} to Researching"* | Confirm write permissions and status option names |
-| 4 | *"Create a child page under {ID} with this markdown"* | Test sub-page creation and block formatting |
+| `API-query-data-source` | Poll for triggered ideas | `notion.pollForTrigger()` |
+| `API-patch-page` | Update status, set URL, reset trigger | `notion.updateStatus()`, `notion.setGitHubUrl()`, `notion.resetTrigger()` |
+| `API-post-page` | Create research/brief sub-pages | `notion.writeSubPage()` |
+| `API-get-block-children` | Check if sub-page exists (idempotency) | `notion.subPageExists()` |
+| `API-delete-a-block` | Delete sub-pages during reset | `scripts/reset-db.js` |
 
-### 9.2 GitHub MCP
+**Why MCP instead of direct SDK?**
+- Hackathon requirement: MCP is mandatory
+- Decouples from Notion SDK version changes (v5 had breaking changes)
+- Same protocol used by AI assistants — consistent interface
 
-| Step | MCP Prompt | What You Learn |
+### 9.2 As MCP Server — Exposing ZeroToRepo Tools
+
+`src/mcp-server.js` exposes 7 tools so any MCP-compatible AI assistant (Claude Desktop, VS Code Copilot, etc.) can drive the pipeline:
+
+```bash
+# Run as MCP server
+node src/mcp-server.js
+
+# Or configure in mcp.json for auto-discovery
+```
+
+| Tool | Input | Output |
 | :--- | :--- | :--- |
-| 1 | *"Create a test repo called ztr-test-001"* | Validate PAT has `repo` scope |
-| 2 | *"List files in the main branch of ztr-test-001"* | Confirm ghost commit worked |
-| 3 | *"Create an issue with labels on ztr-test-001"* | Test label creation + issue body formatting |
+| `process_idea` | `{ idea_name, description }` | Full pipeline result |
+| `research_competitors` | `{ idea_name, description }` | Research data |
+| `generate_name` | `{ idea_name, description, research }` | Name + tagline |
+| `scaffold_repo` | `{ project_name, description, research }` | Repo URL |
+| `generate_roadmap` | `{ project_name, description, research, owner, repo }` | Task list + issue URLs |
+| `generate_brief` | `{ project_name, startup_name, description, research, roadmap }` | Brief content |
+| `list_notion_ideas` | `{}` | List of ideas from Notion DB |
 
-### 9.3 Brave Search MCP
+### 9.3 MCP During Development
 
-| Step | MCP Prompt | What You Learn |
-| :--- | :--- | :--- |
-| 1 | *"Search for 'notion automation tool competitors'"* | See result shape and quality |
-| 2 | *"Search for 'open source project scaffolding'"* | Refine query patterns for best results |
+MCP servers were also used during development for rapid API exploration:
 
-### 9.4 Why This Matters
+| MCP Server | Development Usage |
+| :--- | :--- |
+| **Notion MCP** | Validated database schema, tested property names, debugged filter syntax |
+| **GitHub MCP** | Validated PAT permissions, tested ghost commit flow, verified issue creation |
+
+### 9.4 Why This Architecture Matters
 
 ```
-Traditional workflow:
-  Read docs → Write code → Run → Hit error → Read docs again → Fix → Repeat
-  ⏱️ ~20 minutes per API integration
+Traditional pipeline:
+  Hardcoded sequence → Direct SDK calls → Tightly coupled
 
-MCP workflow:
-  Ask assistant → Get working code with real data → Validate → Ship
-  ⏱️ ~5 minutes per API integration
-
-Savings across 4 APIs: ~60 minutes → enables more polish time
+ZeroToRepo architecture:
+  LLM Agent (decides order) → MCP Protocol (Notion) + Direct APIs (GitHub/Brave/Groq)
+  + ZeroToRepo itself exposed as MCP server for AI assistants to consume
 ```
+
+This means:
+1. The pipeline order is **AI-determined**, not hardcoded
+2. Notion operations are **protocol-based** (MCP), not SDK-coupled
+3. External AI assistants can **drive the pipeline** via MCP tools
+4. The system demonstrates **both MCP client and MCP server** patterns
 
 ---
 
@@ -679,15 +807,16 @@ Savings across 4 APIs: ~60 minutes → enables more polish time
 
 ### 10.1 Groq API
 
-| Parameter | Gap Analysis | Roadmap | Brief |
-| :--- | :--- | :--- | :--- |
-| **Model** | `llama-3-70b-8192` | `llama-3-70b-8192` | `llama-3-70b-8192` |
-| **Temperature** | `0.3` (factual) | `0.4` (structured) | `0.6` (creative) |
-| **Max Tokens** | `2048` | `3000` | `4000` |
-| **Response Format** | `{ type: "json_object" }` | `{ type: "json_object" }` | `null` (free-text markdown) |
-| **Endpoint** | `POST https://api.groq.com/openai/v1/chat/completions` | same | same |
+| Parameter | Agent Orchestration | Gap Analysis | Name Gen | Roadmap | Brief |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Model** | `llama-3.3-70b-versatile` | same | same | same | same |
+| **Temperature** | `0` (deterministic) | `0.3` (factual) | `0.8` (creative) | `0.4` (structured) | `0.6` (creative) |
+| **Max Tokens** | `1024` | `2500` | `500` | `2000` | `2500` |
+| **Response Format** | — (function calling) | `json_object` | `json_object` | `json_object` | free-text markdown |
+| **Function Calling** | ✅ 10 tools | — | — | — | — |
 
-**Rate limits (free tier):** 30 requests/min, 14,400 tokens/day, 6,000 tokens/min.
+**Rate limits (free tier):** 30 requests/min, 100,000 tokens/day.
+**Token optimization:** Message history trimmed, tool results summarized, ~14 Groq calls per pipeline run.
 
 ### 10.2 Brave Search API
 
@@ -698,13 +827,13 @@ Savings across 4 APIs: ~60 minutes → enables more polish time
 | **Query Params** | `q={query}&count=10&safesearch=moderate` |
 | **Rate Limit** | 1 request/second, 2,000 queries/month (free) |
 
-### 10.3 Notion API
+### 10.3 Notion API (via MCP)
 
 | Parameter | Value |
 | :--- | :--- |
-| **Base URL** | `https://api.notion.com/v1` |
-| **Auth Header** | `Authorization: Bearer {NOTION_API_KEY}` |
-| **Version Header** | `Notion-Version: 2022-06-28` |
+| **Transport** | MCP stdio (spawns `@notionhq/notion-mcp-server` as child process) |
+| **Auth** | `NOTION_TOKEN` env var passed to MCP server |
+| **MCP Tools Used** | `API-query-data-source`, `API-patch-page`, `API-post-page`, `API-get-block-children`, `API-delete-a-block` |
 | **Rate Limit** | 3 requests/second (average) |
 
 ### 10.4 GitHub API (Octokit)
@@ -713,7 +842,7 @@ Savings across 4 APIs: ~60 minutes → enables more polish time
 | :--- | :--- |
 | **Base URL** | `https://api.github.com` |
 | **Auth** | `token` auth via Octokit constructor |
-| **Required Scopes** | `repo` (full control of private repos) |
+| **Required Permissions** | Fine-grained PAT: Read & Write on Administration, Contents, Issues |
 | **Rate Limit** | 5,000 requests/hour (authenticated) |
 
 ---
@@ -770,10 +899,10 @@ node scripts/reset-db.js
 
 | Service | Tier | Limit | Cost | Notes |
 | :--- | :--- | :--- | :--- | :--- |
-| **Groq API** | Free | 14.4K tokens/day, 30 RPM | **$0** | ~3 full runs per day within token budget |
-| **Brave Search** | Free | 2,000 queries/month | **$0** | 2 queries per run = 1,000 runs/month |
-| **Notion API** | Free (integration) | 3 req/s avg | **$0** | ~10 calls per run; well within limits |
-| **GitHub API** | Free (PAT) | 5,000 req/hour | **$0** | ~15 calls per run; unlimited runs |
+| **Groq API** | Free | 100K tokens/day, 30 RPM | **$0** | ~14 calls per run, ~20K tokens; ~5 runs/day |
+| **Brave Search** | Free | 2,000 queries/month | **$0** | 5-8 queries per run |
+| **Notion API** (via MCP) | Free (integration) | 3 req/s avg | **$0** | ~10 calls per run |
+| **GitHub API** | Free (PAT) | 5,000 req/hour | **$0** | ~15 calls per run |
 | **Node.js** | — | — | **$0** | Local execution |
 | | | | **Total: $0** | |
 
@@ -786,7 +915,7 @@ node scripts/reset-db.js
 | `NOTION_API_KEY` | `.env` (gitignored) | Single integration, single database |
 | `GROQ_API_KEY` | `.env` (gitignored) | Personal free-tier key |
 | `BRAVE_API_KEY` | `.env` (gitignored) | Personal free-tier key |
-| `GITHUB_TOKEN` | `.env` (gitignored) | PAT scoped to `repo` only |
+| `GITHUB_TOKEN` | `.env` (gitignored) | Fine-grained PAT: Administration, Contents, Issues (Read & Write) |
 
 **`.env.example`** ships with placeholder values so new contributors know what to configure:
 
@@ -820,24 +949,26 @@ GITHUB_OWNER=your_github_username
 ```json
 {
   "name": "zerotorepo",
-  "version": "0.1.0",
-  "description": "Turn Notion ideas into GitHub repos in under 60 seconds",
+  "version": "1.0.0",
+  "description": "AI agent that turns Notion ideas into GitHub repos via MCP",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
     "mock": "node src/index.js --mock",
-    "reset": "node scripts/reset-db.js"
+    "reset": "node scripts/reset-db.js",
+    "mcp": "node src/mcp-server.js"
   },
   "dependencies": {
-    "@notionhq/client": "^2.2.0",
-    "@octokit/rest": "^20.0.0",
-    "groq-sdk": "^0.5.0",
-    "dotenv": "^16.4.0",
-    "@clack/prompts": "^0.7.0"
+    "@modelcontextprotocol/sdk": "^1.28.0",
+    "@notionhq/notion-mcp-server": "^2.2.1",
+    "@octokit/rest": "^22.0.0",
+    "groq-sdk": "^0.18.0",
+    "dotenv": "^17.3.0",
+    "@clack/prompts": "^0.10.0"
   }
 }
 ```
 
 ---
 
-*Document Owner: Hackathon Team · Built for the 48-Hour Sprint · Last Updated: 2026-03-24*
+*Document Owner: Hackathon Team · Built for the 48-Hour Sprint · Last Updated: 2026-03-26*
