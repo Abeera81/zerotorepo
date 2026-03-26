@@ -1,14 +1,12 @@
-const { Client } = require('@notionhq/client');
+const mcpClient = require('./mcp-client');
 const config = require('./config');
 
-const notion = new Client({ auth: config.notion.apiKey });
-
 /**
- * Poll the Notion database for pages with Trigger=true and Status=Idea.
- * Returns the first matching page or null.
+ * Poll the Notion database for pages with Trigger=true and Status=Idea or Error.
+ * Uses Notion MCP server's query-data-source tool.
  */
 async function pollForTrigger() {
-  const response = await notion.dataSources.query({
+  const response = await mcpClient.callTool('API-query-data-source', {
     data_source_id: config.notion.databaseId,
     filter: {
       and: [
@@ -23,7 +21,7 @@ async function pollForTrigger() {
     },
     page_size: 1,
   });
-  return response.results.length > 0 ? response.results[0] : null;
+  return response.results?.length > 0 ? response.results[0] : null;
 }
 
 /**
@@ -50,9 +48,10 @@ function extractDescription(page) {
 
 /**
  * Update the Status property on a Notion page.
+ * Uses Notion MCP server's patch-page tool.
  */
 async function updateStatus(pageId, status) {
-  await notion.pages.update({
+  await mcpClient.callTool('API-patch-page', {
     page_id: pageId,
     properties: {
       Status: { status: { name: status } },
@@ -63,6 +62,7 @@ async function updateStatus(pageId, status) {
 /**
  * Create a child page under the given parent with markdown-like content.
  * Notion blocks are limited to 2000 chars each, so we chunk the content.
+ * Uses Notion MCP server's post-page tool.
  */
 async function writeSubPage(parentId, title, markdownContent) {
   const BLOCK_LIMIT = 2000;
@@ -79,7 +79,7 @@ async function writeSubPage(parentId, title, markdownContent) {
     },
   }));
 
-  const page = await notion.pages.create({
+  const page = await mcpClient.callTool('API-post-page', {
     parent: { page_id: parentId },
     properties: {
       title: [{ type: 'text', text: { content: title } }],
@@ -91,9 +91,10 @@ async function writeSubPage(parentId, title, markdownContent) {
 
 /**
  * Set the GitHub URL property on a Notion page.
+ * Uses Notion MCP server's patch-page tool.
  */
 async function setGitHubUrl(pageId, url) {
-  await notion.pages.update({
+  await mcpClient.callTool('API-patch-page', {
     page_id: pageId,
     properties: {
       'GitHub URL': { url },
@@ -103,9 +104,10 @@ async function setGitHubUrl(pageId, url) {
 
 /**
  * Uncheck the Trigger checkbox to prevent re-processing.
+ * Uses Notion MCP server's patch-page tool.
  */
 async function resetTrigger(pageId) {
-  await notion.pages.update({
+  await mcpClient.callTool('API-patch-page', {
     page_id: pageId,
     properties: {
       Trigger: { checkbox: false },
@@ -115,15 +117,26 @@ async function resetTrigger(pageId) {
 
 /**
  * Check if a sub-page with the given title already exists under a parent.
+ * Uses Notion MCP server's get-block-children tool.
  */
 async function subPageExists(parentId, title) {
-  const children = await notion.blocks.children.list({ block_id: parentId, page_size: 50 });
-  return children.results.some(
+  const children = await mcpClient.callTool('API-get-block-children', {
+    block_id: parentId,
+    page_size: 50,
+  });
+  return (children.results || []).some(
     (block) =>
       block.type === 'child_page' &&
       block.child_page &&
       block.child_page.title === title
   );
+}
+
+/**
+ * Disconnect from the Notion MCP server. Call on shutdown.
+ */
+async function disconnect() {
+  await mcpClient.disconnect();
 }
 
 module.exports = {
@@ -135,4 +148,5 @@ module.exports = {
   setGitHubUrl,
   resetTrigger,
   subPageExists,
+  disconnect,
 };

@@ -1,6 +1,6 @@
 const { intro, outro, spinner, log, isCancel } = require('@clack/prompts');
 const config = require('./config');
-const { pollForTrigger, extractTitle, updateStatus, resetTrigger } = require('./notion');
+const { pollForTrigger, extractTitle, updateStatus, resetTrigger, disconnect } = require('./notion');
 const { processIdea, PhaseError } = require('./stateMachine');
 
 const useMock = process.argv.includes('--mock');
@@ -118,5 +118,13 @@ function createMockPage() {
 
 main().catch((err) => {
   console.error('\n💥 Fatal error:', err.message);
-  process.exit(1);
+  disconnect().finally(() => process.exit(1));
+});
+
+// Graceful shutdown — disconnect MCP server
+process.on('SIGINT', () => {
+  disconnect().finally(() => process.exit(0));
+});
+process.on('SIGTERM', () => {
+  disconnect().finally(() => process.exit(0));
 });
