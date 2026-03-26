@@ -1,8 +1,7 @@
 const { intro, outro, spinner, log, isCancel } = require('@clack/prompts');
 const config = require('./config');
-const { pollForTrigger, extractTitle } = require('./notion');
+const { pollForTrigger, extractTitle, updateStatus, resetTrigger } = require('./notion');
 const { processIdea, PhaseError } = require('./stateMachine');
-const { updateStatus } = require('./notion');
 
 const useMock = process.argv.includes('--mock');
 
@@ -65,6 +64,7 @@ async function main() {
             if (!useMock) {
               try {
                 await updateStatus(page.id, 'Error');
+                await resetTrigger(page.id);
               } catch {
                 // Best effort — don't crash if Notion update also fails
               }

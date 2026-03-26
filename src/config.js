@@ -23,7 +23,7 @@ module.exports = {
   },
   groq: {
     apiKey: process.env.GROQ_API_KEY,
-    model: 'llama-3-70b-8192',
+    model: 'llama-3.3-70b-versatile',
   },
   brave: {
     apiKey: process.env.BRAVE_API_KEY,

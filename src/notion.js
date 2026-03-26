@@ -8,12 +8,17 @@ const notion = new Client({ auth: config.notion.apiKey });
  * Returns the first matching page or null.
  */
 async function pollForTrigger() {
-  const response = await notion.databases.query({
-    database_id: config.notion.databaseId,
+  const response = await notion.dataSources.query({
+    data_source_id: config.notion.databaseId,
     filter: {
       and: [
         { property: 'Trigger', checkbox: { equals: true } },
-        { property: 'Status', status: { equals: 'Idea' } },
+        {
+          or: [
+            { property: 'Status', status: { equals: 'Idea' } },
+            { property: 'Status', status: { equals: 'Error' } },
+          ],
+        },
       ],
     },
     page_size: 1,
