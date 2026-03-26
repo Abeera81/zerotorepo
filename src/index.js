@@ -1,3 +1,5 @@
+#!/usr/bin/env node
+
 const { intro, outro, spinner, log, isCancel } = require('@clack/prompts');
 const config = require('./config');
 const { pollForTrigger, extractTitle, updateStatus, resetTrigger, disconnect } = require('./notion');

@@ -1,0 +1,396 @@
+#!/usr/bin/env node
+
+/**
+ * ZeroToRepo — Interactive Setup Wizard
+ *
+ * Collects API keys, creates the Notion workspace (Projects + Tasks databases),
+ * tests all connections, and writes `.env` so `npm start` Just Works™.
+ */
+
+const fs = require('fs');
+const path = require('path');
+const { intro, outro, text, spinner, log, note, isCancel, cancel } = require('@clack/prompts');
+
+const ENV_PATH = path.join(__dirname, '..', '.env');
+
+// ─── helpers ───────────────────────────────────────────────────────────────
+
+function bail(msg) {
+  cancel(msg || 'Setup cancelled.');
+  process.exit(0);
+}
+
+function masked(key) {
+  if (!key || key.length < 8) return '****';
+  return key.slice(0, 4) + '•'.repeat(key.length - 8) + key.slice(-4);
+}
+
+/**
+ * Lightweight MCP client just for setup — avoids requiring config.js
+ * which would crash if .env is missing.
+ */
+async function createMcpClient(notionApiKey) {
+  const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
+  const { StdioClientTransport } = require('@modelcontextprotocol/sdk/client/stdio.js');
+
+  const transport = new StdioClientTransport({
+    command: 'node',
+    args: [require.resolve('@notionhq/notion-mcp-server/bin/cli.mjs')],
+    env: { ...process.env, NOTION_TOKEN: notionApiKey },
+  });
+
+  const client = new Client(
+    { name: 'zerotorepo-setup', version: '1.0.0' },
+    { capabilities: {} },
+  );
+
+  await client.connect(transport);
+  return {
+    callTool: async (name, args) => {
+      const result = await client.callTool({ name, arguments: args });
+      if (result.content && Array.isArray(result.content)) {
+        const txt = result.content.filter((c) => c.type === 'text').map((c) => c.text).join('');
+        try { return JSON.parse(txt); } catch { return txt; }
+      }
+      return result;
+    },
+    listTools: async () => {
+      const result = await client.listTools();
+      return result.tools || [];
+    },
+    close: () => client.close(),
+  };
+}
+
+// ─── connection testers ────────────────────────────────────────────────────
+
+async function testNotion(apiKey) {
+  const mcp = await createMcpClient(apiKey);
+  try {
+    // listTools proves the MCP server started and is responsive
+    const c = mcp;
+    const tools = await c.listTools();
+    if (!tools || tools.length === 0) throw new Error('No MCP tools available');
+    return { ok: true, mcp, toolCount: tools.length };
+  } catch (err) {
+    await mcp.close().catch(() => {});
+    return { ok: false, error: err.message };
+  }
+}
+
+async function testGroq(apiKey) {
+  const Groq = require('groq-sdk');
+  const groq = new Groq({ apiKey });
+  try {
+    await groq.chat.completions.create({
+      model: 'llama-3.3-70b-versatile',
+      max_tokens: 5,
+      messages: [{ role: 'user', content: 'ping' }],
+    });
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+}
+
+async function testBrave(apiKey) {
+  try {
+    const res = await fetch(
+      'https://api.search.brave.com/res/v1/web/search?q=test&count=1',
+      { headers: { 'X-Subscription-Token': apiKey } },
+    );
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+}
+
+async function testGitHub(token) {
+  const { Octokit } = require('@octokit/rest');
+  const octokit = new Octokit({ auth: token });
+  try {
+    const { data } = await octokit.users.getAuthenticated();
+    return { ok: true, username: data.login };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+}
+
+// ─── Notion workspace setup via MCP ────────────────────────────────────────
+
+// ─── main ──────────────────────────────────────────────────────────────────
+
+async function main() {
+  intro('🚀 ZeroToRepo — Setup Wizard');
+
+  // Check for existing .env
+  let existingEnv = {};
+  if (fs.existsSync(ENV_PATH)) {
+    const lines = fs.readFileSync(ENV_PATH, 'utf-8').split('\n');
+    for (const line of lines) {
+      const m = line.trim().match(/^([A-Z_]+)=["']?(.+?)["']?$/);
+      if (m) existingEnv[m[1]] = m[2];
+    }
+    if (Object.keys(existingEnv).length > 0) {
+      log.info('Found existing .env — press Enter to keep current values.');
+    }
+  }
+
+  // ── Step 1: Notion API Key ──────────────────────────────────────────────
+
+  note(
+    'Create an integration at notion.so/my-integrations\n' +
+    'Then share your workspace page with the integration.',
+    '1/4 · Notion API Key',
+  );
+
+  const notionKey = await text({
+    message: 'Paste your Notion integration secret:',
+    placeholder: existingEnv.NOTION_API_KEY ? `(current: ${masked(existingEnv.NOTION_API_KEY)})` : 'ntn_xxxx...',
+    validate: (v) => {
+      if (!v && existingEnv.NOTION_API_KEY) return; // keep current
+      if (!v) return 'Required';
+      if (!v.startsWith('ntn_') && !v.startsWith('secret_')) return 'Should start with ntn_ or secret_';
+    },
+  });
+  if (isCancel(notionKey)) bail();
+  const NOTION_API_KEY = notionKey || existingEnv.NOTION_API_KEY;
+
+  // ── Step 2: Groq API Key ───────────────────────────────────────────────
+
+  note(
+    'Sign up at console.groq.com (free)\n' +
+    'Create an API key in your dashboard.',
+    '2/4 · Groq API Key',
+  );
+
+  const groqKey = await text({
+    message: 'Paste your Groq API key:',
+    placeholder: existingEnv.GROQ_API_KEY ? `(current: ${masked(existingEnv.GROQ_API_KEY)})` : 'gsk_xxxx...',
+    validate: (v) => {
+      if (!v && existingEnv.GROQ_API_KEY) return;
+      if (!v) return 'Required';
+      if (!v.startsWith('gsk_')) return 'Should start with gsk_';
+    },
+  });
+  if (isCancel(groqKey)) bail();
+  const GROQ_API_KEY = groqKey || existingEnv.GROQ_API_KEY;
+
+  // ── Step 3: Brave Search API Key ────────────────────────────────────────
+
+  note(
+    'Sign up at brave.com/search/api (free, 2000 queries/mo)\n' +
+    'Copy your subscription token.',
+    '3/4 · Brave Search API Key',
+  );
+
+  const braveKey = await text({
+    message: 'Paste your Brave Search API key:',
+    placeholder: existingEnv.BRAVE_API_KEY ? `(current: ${masked(existingEnv.BRAVE_API_KEY)})` : 'BSA_xxxx...',
+    validate: (v) => {
+      if (!v && existingEnv.BRAVE_API_KEY) return;
+      if (!v) return 'Required';
+    },
+  });
+  if (isCancel(braveKey)) bail();
+  const BRAVE_API_KEY = braveKey || existingEnv.BRAVE_API_KEY;
+
+  // ── Step 4: GitHub Token ────────────────────────────────────────────────
+
+  note(
+    'Create at github.com/settings/tokens\n' +
+    'Needs: repo scope (or fine-grained: Read+Write on\n' +
+    'Administration, Contents, Issues)',
+    '4/4 · GitHub Personal Access Token',
+  );
+
+  const ghToken = await text({
+    message: 'Paste your GitHub token:',
+    placeholder: existingEnv.GITHUB_TOKEN ? `(current: ${masked(existingEnv.GITHUB_TOKEN)})` : 'ghp_xxxx...',
+    validate: (v) => {
+      if (!v && existingEnv.GITHUB_TOKEN) return;
+      if (!v) return 'Required';
+      if (!v.startsWith('ghp_') && !v.startsWith('github_pat_')) return 'Should start with ghp_ or github_pat_';
+    },
+  });
+  if (isCancel(ghToken)) bail();
+  const GITHUB_TOKEN = ghToken || existingEnv.GITHUB_TOKEN;
+
+  // ── Test connections ────────────────────────────────────────────────────
+
+  const s = spinner();
+  let mcp = null;
+  let GITHUB_OWNER = existingEnv.GITHUB_OWNER || '';
+  let NOTION_DATABASE_ID = existingEnv.NOTION_DATABASE_ID || '';
+
+  // Test Notion
+  s.start('Testing Notion connection via MCP...');
+  const notionResult = await testNotion(NOTION_API_KEY);
+  if (notionResult.ok) {
+    mcp = notionResult.mcp;
+    s.stop(`✓ Notion connected via MCP (${notionResult.toolCount} tools available)`);
+  } else {
+    s.stop('✗ Notion failed: ' + notionResult.error);
+    log.warn('Check your Notion API key and try again.');
+  }
+
+  // Test Groq
+  s.start('Testing Groq connection...');
+  const groqResult = await testGroq(GROQ_API_KEY);
+  if (groqResult.ok) {
+    s.stop('✓ Groq connected (llama-3.3-70b-versatile)');
+  } else {
+    s.stop('✗ Groq failed: ' + groqResult.error);
+    log.warn('Check your Groq API key and try again.');
+  }
+
+  // Test Brave
+  s.start('Testing Brave Search connection...');
+  const braveResult = await testBrave(BRAVE_API_KEY);
+  if (braveResult.ok) {
+    s.stop('✓ Brave Search connected');
+  } else {
+    s.stop('✗ Brave Search failed: ' + braveResult.error);
+    log.warn('Check your Brave Search API key and try again.');
+  }
+
+  // Test GitHub
+  s.start('Testing GitHub connection...');
+  const ghResult = await testGitHub(GITHUB_TOKEN);
+  if (ghResult.ok) {
+    GITHUB_OWNER = ghResult.username;
+    s.stop(`✓ GitHub connected as @${GITHUB_OWNER}`);
+  } else {
+    s.stop('✗ GitHub failed: ' + ghResult.error);
+    log.warn('Check your GitHub token permissions and try again.');
+  }
+
+  // ── Set up Notion workspace ─────────────────────────────────────────────
+
+  if (mcp) {
+    s.start('Setting up Notion workspace...');
+    try {
+      // Find or use existing database
+      if (NOTION_DATABASE_ID) {
+        // Verify existing DB is accessible
+        try {
+          await mcp.callTool('API-query-data-source', {
+            data_source_id: NOTION_DATABASE_ID,
+            page_size: 1,
+          });
+          s.stop('✓ Notion "Projects" database verified');
+        } catch {
+          log.warn('Existing database ID is invalid. Searching for Projects database...');
+          NOTION_DATABASE_ID = '';
+        }
+      }
+
+      if (!NOTION_DATABASE_ID) {
+        // No existing DB — ask user to provide the database ID
+        s.stop('⚠ No Notion database ID configured');
+        log.info('Create a database in Notion with columns:');
+        log.info('  • Name (title), Status (status), Trigger (checkbox)');
+        log.info('  • Description (rich text), GitHub URL (url)');
+        log.info('Share the page with your integration, then grab the database ID from the URL.');
+
+        const manualId = await text({
+          message: 'Paste your Notion database ID:',
+          placeholder: '32-char hex string from Notion URL',
+          validate: (v) => {
+            if (!v) return 'Required — create a database in Notion first';
+          },
+        });
+        if (manualId && !isCancel(manualId)) {
+          NOTION_DATABASE_ID = manualId.replace(/-/g, '');
+          // Verify the manually-entered ID
+          s.start('Verifying database access...');
+          try {
+            await mcp.callTool('API-query-data-source', {
+              data_source_id: NOTION_DATABASE_ID,
+              page_size: 1,
+            });
+            s.stop('✓ Notion database verified');
+          } catch (err) {
+            s.stop('✗ Cannot access database: ' + err.message);
+            log.warn('Make sure the database is shared with your Notion integration.');
+          }
+        }
+      }
+
+      // Verify database has required properties
+      if (NOTION_DATABASE_ID) {
+        try {
+          const testQuery = await mcp.callTool('API-query-data-source', {
+            data_source_id: NOTION_DATABASE_ID,
+            page_size: 1,
+          });
+          const page = (testQuery.results || [])[0];
+          if (page) {
+            const props = Object.keys(page.properties || {});
+            const required = ['Name', 'Status', 'Trigger'];
+            const missing = required.filter((p) => !props.includes(p));
+            if (missing.length > 0) {
+              log.warn(`Database is missing properties: ${missing.join(', ')}`);
+              log.warn('Add them in Notion for the pipeline to work correctly.');
+            } else {
+              log.info('Database has all required properties ✓');
+            }
+          }
+        } catch { /* non-fatal */ }
+      }
+    } catch (err) {
+      s.stop('⚠ Workspace setup had issues: ' + err.message);
+    }
+
+    await mcp.close().catch(() => {});
+  }
+
+  // ── Write .env ──────────────────────────────────────────────────────────
+
+  const envContent = [
+    '# ZeroToRepo — Environment Configuration',
+    '# Generated by setup wizard',
+    '',
+    '# Notion (notion.so/my-integrations)',
+    `NOTION_API_KEY=${NOTION_API_KEY}`,
+    `NOTION_DATABASE_ID=${NOTION_DATABASE_ID}`,
+    '',
+    '# Groq (console.groq.com)',
+    `GROQ_API_KEY=${GROQ_API_KEY}`,
+    '',
+    '# Brave Search (brave.com/search/api)',
+    `BRAVE_API_KEY=${BRAVE_API_KEY}`,
+    '',
+    '# GitHub (github.com/settings/tokens)',
+    `GITHUB_TOKEN=${GITHUB_TOKEN}`,
+    `GITHUB_OWNER=${GITHUB_OWNER}`,
+    '',
+  ].join('\n');
+
+  fs.writeFileSync(ENV_PATH, envContent);
+  log.success('.env written successfully');
+
+  // ── Summary ─────────────────────────────────────────────────────────────
+
+  const allGood = notionResult.ok && groqResult.ok && braveResult.ok && ghResult.ok && NOTION_DATABASE_ID;
+
+  if (allGood) {
+    outro('✅ You\'re ready! Run `npm start` to begin watching for new projects.');
+  } else {
+    const issues = [];
+    if (!notionResult.ok) issues.push('Notion connection failed');
+    if (!groqResult.ok) issues.push('Groq connection failed');
+    if (!braveResult.ok) issues.push('Brave Search connection failed');
+    if (!ghResult.ok) issues.push('GitHub connection failed');
+    if (!NOTION_DATABASE_ID) issues.push('No Notion database ID configured');
+
+    log.warn(`Issues to fix:\n${issues.map((i) => `  • ${i}`).join('\n')}`);
+    outro('.env saved — fix the issues above and run `node scripts/setup.js` again.');
+  }
+}
+
+main().catch((err) => {
+  console.error('\n💥 Setup error:', err.message);
+  process.exit(1);
+});

@@ -1,17 +1,25 @@
 {
   "name": "zerotorepo",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "AI agent that turns Notion ideas into fully scaffolded GitHub repos — research, strategy, code, and brief in one pipeline.",
+  "main": "src/index.js",
+  "bin": {
+    "zerotorepo": "src/index.js",
+    "zerotorepo-setup": "scripts/setup.js"
+  },
   "scripts": {
+    "start": "node src/index.js",
+    "setup": "node scripts/setup.js",
+    "mock": "node src/index.js --mock",
+    "reset": "node scripts/reset-db.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Abeera81/zerotorepo.git"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": ["notion", "github", "ai-agent", "mcp", "groq", "hackathon", "scaffold"],
+  "author": "Abeera81",
   "license": "ISC",
   "type": "commonjs",
   "bugs": {
