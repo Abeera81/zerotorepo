@@ -1,186 +1,222 @@
 # ZeroToRepo 🚀
 
-> *Your idea has a GitHub repo before your coffee cools.*
+> *Idea → Research → Strategy → GitHub repo — before your coffee cools.*
 
-An **AI agent** that turns a Notion checkbox click into a fully scaffolded GitHub repository — with deep competitor research, a creative startup name, a labeled issue roadmap, and an investor brief — all orchestrated by an LLM deciding what to do next.
+**ZeroToRepo** is an AI-powered CLI agent that watches your Notion database for new ideas. When you check a trigger, it autonomously performs deep competitor research, generates a 4-week gap-targeting roadmap, scaffolds a private GitHub repo with issues, and writes a project brief — all back to Notion.
 
-**Built with MCP (Model Context Protocol)** — Notion operations go through Notion MCP Server, and ZeroToRepo itself is exposed as an MCP server for AI assistants to consume.
+**100% MCP-native.** Notion operations go through the Notion MCP Server. ZeroToRepo itself is exposed as an MCP server for AI assistants.
 
-## How It Works
+---
 
-```
-1. ☑️  Check "Trigger" in your Notion Ideas database
-2. 🤖  Groq AI agent wakes up and decides the tool execution order
-3. 🔍  Runs 5-8 Brave searches for deep competitive intelligence
-4. 🧠  Analyzes competitors, gaps, market insights via Groq (Llama-3.3-70B)
-5. ✨  Generates a creative startup name + tagline
-6. 📝  Saves rich research report to Notion (via MCP)
-7. 🏗️  Creates a private GitHub repo with scaffold files (ghost commit — no git clone)
-8. 📋  Generates 7-10 implementable GitHub Issues as your roadmap
-9. 💼  Synthesizes an investor brief from research + roadmap
-10. ✅  Marks idea as "Ready" with a link to your new repo
-```
-
-## Key Features
-
-- **LLM-Driven Agent** — Groq decides tool call order via function calling (not hardcoded)
-- **MCP Integration** — Notion operations via MCP protocol; ZeroToRepo exposed as MCP server
-- **Deep Research** — 5-8 targeted searches, keyword extraction, competitor analysis with gaps & market insights
-- **Smart Naming** — AI-generated startup name + tagline based on research context
-- **Rich README** — Generated with competitor table, gap analysis, tech recommendations
-- **Feature-Focused Roadmap** — No boilerplate tasks; only implementable feature issues
-- **Ghost Commits** — Repo created entirely via GitHub API, zero local git operations
-- **Mock Mode** — Full offline demo without any API calls
-
-## Quick Start
-
-### 1. Prerequisites
-
-- **Node.js v20+**
-- A [Notion Integration](https://www.notion.so/my-integrations) connected to your Ideas database
-- API keys for: [Groq](https://console.groq.com), [Brave Search](https://api.search.brave.com), [GitHub PAT](https://github.com/settings/tokens)
-
-### 2. Setup
+## ⚡ Quickstart
 
 ```bash
 git clone https://github.com/Abeera81/zerotorepo.git
 cd zerotorepo
 npm install
-cp .env.example .env
-# Edit .env with your API keys
+npm run setup    # Interactive wizard — collects keys, tests connections
+npm start        # Watches Notion for triggered ideas
 ```
 
-### 3. Environment Variables
+That's it. Two commands after install.
 
-```env
-NOTION_API_KEY=ntn_...          # Notion integration token
-NOTION_DATABASE_ID=...          # Your Notion database ID
-GROQ_API_KEY=gsk_...            # Groq API key
-BRAVE_API_KEY=BSA...            # Brave Search API key
-GITHUB_TOKEN=github_pat_...     # GitHub fine-grained PAT (Read & Write: Administration, Contents, Issues)
-GITHUB_OWNER=your-username      # GitHub username
+---
+
+## 🔄 The Pipeline
+
+When you check ☑️ **Trigger** on any idea in your Notion database:
+
+```
+Phase 1 — Research (🔍 Researching)
+  ├─ Runs 5-8 Brave Search queries for competitive intelligence
+  ├─ AI analyzes competitors, gaps, market insights (Groq Llama-3.3-70B)
+  ├─ Generates a creative startup name + tagline
+  └─ Writes "Market Analysis" sub-page to Notion via MCP
+      → Competitor name, positioning, key weakness
+      → Gap Opportunity: what all competitors lack
+
+Phase 2 — Strategy (📋 Planning)
+  ├─ Reads Phase 1's Gap Opportunity field
+  ├─ Generates a 4-week roadmap targeting those specific gaps
+  │   "Competitors lack mobile onboarding → Week 2: Build mobile onboarding flow"
+  └─ Writes "Strategy & Roadmap" sub-page to Notion via MCP
+      → Tasks with week, priority, owner, gap_addressed
+
+Phase 3 — Execution (⚙️ Building)
+  ├─ Creates a private GitHub repository (ghost commit — no local git clone)
+  ├─ Commits scaffold: README.md, package.json, .gitignore, src/index.js
+  ├─ README includes competitor table, gap analysis, tech recommendations
+  └─ Opens GitHub Issues from roadmap tasks (labeled, prioritized)
+
+Phase 4 — Synthesis (✅ Done)
+  ├─ Writes "Project Brief" sub-page to Notion
+  │   → Top 3 competitors & market gap
+  │   → Roadmap rationale tied to research
+  │   → GitHub repo link + first 3 issues
+  │   → Timestamp
+  └─ Marks idea as Done, unchecks trigger
 ```
 
-### 4. Notion Database Setup
+**Fallback:** If Brave Search returns no results, the pipeline continues with template competitor data — it never breaks.
 
-Create a Notion database with these exact properties:
+---
 
-| Property | Type | Purpose |
-|----------|------|---------|
-| `Name` | Title | Project/idea name |
-| `Description` | Rich Text | Context for the AI agent (the richer, the better research) |
-| `Status` | Status | Options: `Idea`, `Researching`, `Scaffolding`, `Generating Brief`, `Ready`, `Error` |
-| `Trigger` | Checkbox | The start button — check to launch the pipeline |
-| `GitHub URL` | URL | Auto-populated after repo creation |
+## 🏗️ Architecture
 
-Share the database with your Notion integration.
-
-### 5. Run
-
-```bash
-# Live mode — AI agent polls Notion and orchestrates the full pipeline
-node src/index.js
-
-# Mock mode — offline demo, no API calls
-node src/index.js --mock
-
-# MCP server mode — expose ZeroToRepo tools for AI assistants
-node src/mcp-server.js
+```
+                    ┌─────────────────────────┐
+                    │   Notion Database        │
+                    │   (Trigger = ☑️)          │
+                    └────────┬────────────────┘
+                             │ MCP (stdio)
+                    ┌────────▼────────────────┐
+                    │  Notion MCP Server       │
+                    │  @notionhq/notion-mcp    │
+                    │  22 tools (API-*)         │
+                    └────────┬────────────────┘
+                             │
+                    ┌────────▼────────────────┐
+                    │  ZeroToRepo Agent        │
+                    │  Groq Function Calling   │
+                    │  12 tools, 14-step flow  │
+                    └──┬─────┬─────┬─────┬───┘
+                       │     │     │     │
+                ┌──────▼┐ ┌──▼──┐ ┌▼────┐ ┌▼──────┐
+                │ Brave  │ │Groq │ │ Git │ │Notion │
+                │ Search │ │ LLM │ │ Hub │ │ MCP   │
+                │  API   │ │ API │ │ API │ │Server │
+                └────────┘ └─────┘ └─────┘ └───────┘
 ```
 
-### 6. Reset (between demos)
+### Key Design Decisions
 
-```bash
-node scripts/reset-db.js
-```
+- **LLM-driven orchestration** — Groq decides tool call order via function calling (not hardcoded sequences)
+- **MCP-native** — All Notion ops go through Notion MCP Server over stdio
+- **Ghost commits** — Repos created entirely via GitHub Data API, zero local git
+- **Context injection** — Large payloads (search results, research) stored in shared context, auto-injected into tool args
+- **Token optimization** — Message trimming, result summarization, bounded history (fits Groq free tier)
 
-## Architecture
+---
+
+## 📁 Project Structure
 
 ```
 zerotorepo/
 ├── src/
-│   ├── index.js            # CLI entry point — polling loop + graceful shutdown
-│   ├── agent.js            # 🤖 LLM agent orchestrator — Groq function calling, 10 tools
+│   ├── index.js            # CLI entry point — polling loop, @clack/prompts TUI
+│   ├── agent.js            # 🤖 LLM agent — Groq function calling, 12 tools, 14-step workflow
 │   ├── stateMachine.js     # Routes: live → agent, mock → sequential pipeline
 │   ├── mcp-client.js       # MCP client — spawns Notion MCP server (stdio transport)
 │   ├── mcp-server.js       # ZeroToRepo as MCP server — 7 tools for AI assistants
 │   ├── config.js           # Env validation (fail-fast on missing keys)
-│   ├── notion.js           # Notion operations via MCP (query, patch, post, delete)
-│   ├── research.js         # Deep multi-query Brave search + Groq analysis + name gen
+│   ├── notion.js           # Notion via MCP — markdown-to-Notion-blocks converter
+│   ├── research.js         # Brave Search (5-8 queries) + Groq analysis + name gen
 │   ├── scaffold.js         # GitHub repo + ghost commits + rich README + issues
-│   ├── roadmap.js          # Groq roadmap generation (feature-focused)
-│   └── brief.js            # Investor brief synthesis
+│   ├── roadmap.js          # 4-week gap-targeting strategy generation
+│   └── brief.js            # Project Brief synthesis (competitors, roadmap, repo, timestamp)
 ├── prompts/                # LLM system prompts (gap-analysis, roadmap, brief, name-gen)
-├── scripts/                # Utility scripts (reset-db.js)
-├── fixtures/               # Mock data for --mock mode
-├── agent_docs/             # Tech stack docs, code patterns, testing guides
+├── scripts/
+│   ├── setup.js            # Interactive setup wizard — keys, tests, .env generation
+│   └── reset-db.js         # Reset Notion database state
 └── mcp.json                # MCP server configuration
 ```
 
-## Agent Tool Registry
+---
 
-The LLM agent has access to 10 tools and decides the execution order:
+## 🤖 Agent Tool Registry
+
+The LLM agent orchestrates 12 tools across 4 phases:
 
 | Tool | Phase | Description |
 |------|-------|-------------|
-| `update_notion_status` | All | Update idea status in Notion (via MCP) |
-| `deep_search` | Research | Run 5-8 Brave searches for competitive intelligence |
-| `analyze_market` | Research | AI analysis of competitors, gaps, market insights |
-| `generate_startup_name` | Research | Creative name + tagline from research context |
-| `save_research_to_notion` | Research | Save rich research report to Notion (via MCP) |
-| `create_github_repo` | Scaffold | Create repo + ghost commit with scaffold files |
-| `set_github_url` | Scaffold | Set GitHub URL on Notion page (via MCP) |
-| `create_roadmap_issues` | Roadmap | Generate & create 7-10 GitHub Issues |
-| `write_investor_brief` | Brief | Synthesize investor brief → Notion |
-| `finalize_idea` | Done | Mark as Ready, uncheck trigger |
+| `update_notion_status` | All | Update idea status in Notion via MCP |
+| `deep_search` | 🔍 Research | Run 5-8 Brave searches (with fallback) |
+| `analyze_market` | 🔍 Research | AI analysis → competitors, gaps, market insights |
+| `generate_startup_name` | 🔍 Research | Creative name + tagline from research |
+| `save_market_analysis` | 🔍 Research | Write "Market Analysis" to Notion via MCP |
+| `generate_strategy` | 📋 Strategy | 4-week roadmap targeting competitive gaps |
+| `save_strategy_to_notion` | 📋 Strategy | Write "Strategy & Roadmap" to Notion via MCP |
+| `create_github_repo` | ⚙️ Execution | Create private repo + ghost commit scaffold |
+| `set_github_url` | ⚙️ Execution | Store repo URL in Notion via MCP |
+| `create_github_issues` | ⚙️ Execution | Create labeled issues from roadmap tasks |
+| `write_project_brief` | ✅ Synthesis | Write "Project Brief" to Notion via MCP |
+| `finalize_idea` | ✅ Synthesis | Mark as Done, uncheck trigger |
 
-## MCP Integration
+---
 
-ZeroToRepo uses MCP in two ways:
+## 🔌 MCP Integration
 
 ### As MCP Client (consuming Notion MCP)
-All Notion API calls go through the official `@notionhq/notion-mcp-server`, spawned as a child process via stdio transport. Tools used: `API-query-data-source`, `API-patch-page`, `API-post-page`, `API-get-block-children`, `API-delete-a-block`.
+All Notion operations go through `@notionhq/notion-mcp-server` (v2.2.1), spawned as a child process via stdio transport. MCP tools used: `API-query-data-source`, `API-patch-page`, `API-post-page`, `API-get-block-children`, `API-delete-a-block`.
 
 ### As MCP Server (exposing pipeline tools)
-ZeroToRepo exposes 7 tools via MCP for AI assistants:
-- `process_idea` — Run the full pipeline for a given idea name
-- `research_competitors` — Run deep research only
-- `generate_name` — Generate startup name from research
-- `scaffold_repo` — Create GitHub repo with scaffold
-- `generate_roadmap` — Generate and create roadmap issues
-- `generate_brief` — Synthesize investor brief
-- `list_notion_ideas` — List all ideas in the Notion database
+ZeroToRepo exposes 7 tools via MCP for other AI assistants:
 
-## Pipeline Flow
+| Tool | Description |
+|------|-------------|
+| `process_idea` | Run the full 4-phase pipeline |
+| `research_competitors` | Deep competitive research only |
+| `generate_name` | Creative startup name from research |
+| `scaffold_repo` | Create GitHub repo with scaffold files |
+| `generate_roadmap` | Generate & create roadmap issues |
+| `generate_brief` | Synthesize project brief |
+| `list_notion_ideas` | List all ideas from Notion database |
 
+---
+
+## 📋 Notion Database Setup
+
+Your Notion database needs these properties:
+
+| Property | Type | Purpose |
+|----------|------|---------|
+| `Name` | Title | Project / idea name |
+| `Description` | Rich Text | Context for the AI (richer = better research) |
+| `Status` | Status | `Idea` → `Researching` → `Planning` → `Building` → `Done` / `Error` |
+| `Trigger` | Checkbox | Check to launch the pipeline |
+| `GitHub URL` | URL | Auto-populated after repo creation |
+
+Share the database page with your Notion integration.
+
+---
+
+## 🧪 Commands
+
+```bash
+npm run setup     # Interactive setup wizard (keys + connection tests)
+npm start         # Watch Notion for triggered ideas (live mode)
+npm run mock      # Offline demo — no API calls
+npm run reset     # Reset Notion database state
 ```
-Notion (Trigger via MCP)
-  → Groq Agent decides tool order
-    → Research (Brave Search × 5-8 + Groq Analysis)
-    → Name Generation (Groq)
-    → Save to Notion (via MCP)
-    → Scaffold (GitHub API — ghost commits)
-    → Roadmap (Groq → GitHub Issues)
-    → Brief (Groq → Notion via MCP)
-    → Finalize (Ready ✅)
-```
 
-Each phase has:
-- **AI-driven ordering** — the LLM decides what to do next
-- **Error recovery** — failed tools report back to the LLM for graceful handling
-- **Context injection** — large payloads (search results, research) passed between tools automatically
-- **Idempotency** — safe to re-run after crashes
-- **Status feedback** — Notion row updates in real-time via MCP
+---
 
-## API Costs
+## 💰 API Costs
 
-| Service | Cost |
-|---------|------|
-| Groq (Llama-3.3-70B) | **$0** — Free tier (100k tokens/day) |
-| Brave Search | **$0** — Free tier (2k queries/month) |
-| Notion API (via MCP) | **$0** — Free integration |
-| GitHub API | **$0** — Free with PAT |
-| **Total** | **$0** |
+| Service | Cost | Tier |
+|---------|------|------|
+| Groq (Llama-3.3-70B) | **$0** | Free — 100k tokens/day |
+| Brave Search | **$0** | Free — 2,000 queries/month |
+| Notion API (via MCP) | **$0** | Free integration |
+| GitHub API | **$0** | Free with PAT |
+| **Total** | **$0** | |
+
+---
+
+## 🛠️ Tech Stack
+
+| Technology | Role |
+|------------|------|
+| Node.js v20+ | Runtime |
+| `@modelcontextprotocol/sdk` | MCP client + server |
+| `@notionhq/notion-mcp-server` | Notion MCP integration |
+| Groq API (Llama-3.3-70B) | LLM — function calling, analysis, generation |
+| Brave Search API | Real-time competitive intelligence |
+| `@octokit/rest` | GitHub repo creation, ghost commits, issues |
+| `@clack/prompts` | Beautiful CLI TUI |
+| `dotenv` | Environment configuration |
+
+---
 
 ## License
 
