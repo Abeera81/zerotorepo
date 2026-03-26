@@ -326,24 +326,58 @@ async function main() {
         const existingProps = dbInfo.properties || {};
         const existingNames = Object.keys(existingProps);
 
-        // Build property updates for missing columns
-        const updates = {};
+        // Step B1: Rename the default title column to "Name" if needed
+        const titleProp = Object.entries(existingProps).find(([, v]) => v.type === 'title');
+        if (titleProp && titleProp[0] !== 'Name') {
+          const oldTitleName = titleProp[0];
+          await mcp.callTool('API-update-a-data-source', {
+            data_source_id: NOTION_DATABASE_ID,
+            properties: { [oldTitleName]: { name: 'Name' } },
+          });
+          log.info(`Renamed "${oldTitleName}" → "Name"`);
+        }
+
+        // Step B2: Add columns one-by-one in the desired order:
+        // Description → Trigger → Status → GitHub URL
         let added = [];
 
-        // Status (status type with our pipeline options)
+        // 1. Description (rich_text)
+        if (!existingNames.includes('Description')) {
+          await mcp.callTool('API-update-a-data-source', {
+            data_source_id: NOTION_DATABASE_ID,
+            properties: { 'Description': { rich_text: {} } },
+          });
+          added.push('Description');
+        }
+
+        // 2. Trigger (checkbox)
+        if (!existingNames.includes('Trigger')) {
+          await mcp.callTool('API-update-a-data-source', {
+            data_source_id: NOTION_DATABASE_ID,
+            properties: { 'Trigger': { checkbox: {} } },
+          });
+          added.push('Trigger');
+        }
+
+        // 3. Status (status with pipeline options)
         if (!existingNames.includes('Status')) {
-          updates['Status'] = {
-            status: {
-              options: [
-                { name: 'Idea', color: 'default' },
-                { name: 'Researching', color: 'blue' },
-                { name: 'Planning', color: 'purple' },
-                { name: 'Building', color: 'orange' },
-                { name: 'Done', color: 'green' },
-                { name: 'Error', color: 'red' },
-              ],
+          await mcp.callTool('API-update-a-data-source', {
+            data_source_id: NOTION_DATABASE_ID,
+            properties: {
+              'Status': {
+                status: {
+                  options: [
+                    { name: 'Idea', color: 'default' },
+                    { name: 'Researching', color: 'blue' },
+                    { name: 'Planning', color: 'purple' },
+                    { name: 'Building', color: 'orange' },
+                    { name: 'Done', color: 'green' },
+                    { name: 'Error', color: 'red' },
+                  ],
+                },
+              },
             },
-          };
+          });
           added.push('Status');
         } else if (existingProps['Status']?.type === 'status') {
           // Status exists — ensure our pipeline options are present
@@ -351,7 +385,6 @@ async function main() {
           const needed = ['Idea', 'Researching', 'Planning', 'Building', 'Done', 'Error'];
           const missingOptions = needed.filter((n) => !currentOptions.includes(n));
           if (missingOptions.length > 0) {
-            // Merge existing + missing options
             const allOptions = [
               ...(existingProps['Status'].status?.options || []),
               ...missingOptions.map((name) => {
@@ -359,35 +392,24 @@ async function main() {
                 return { name, color: colors[name] || 'default' };
               }),
             ];
-            updates['Status'] = { status: { options: allOptions } };
+            await mcp.callTool('API-update-a-data-source', {
+              data_source_id: NOTION_DATABASE_ID,
+              properties: { 'Status': { status: { options: allOptions } } },
+            });
             added.push(`Status options (${missingOptions.join(', ')})`);
           }
         }
 
-        // Trigger (checkbox)
-        if (!existingNames.includes('Trigger')) {
-          updates['Trigger'] = { checkbox: {} };
-          added.push('Trigger');
-        }
-
-        // Description (rich_text)
-        if (!existingNames.includes('Description')) {
-          updates['Description'] = { rich_text: {} };
-          added.push('Description');
-        }
-
-        // GitHub URL (url)
+        // 4. GitHub URL (url)
         if (!existingNames.includes('GitHub URL')) {
-          updates['GitHub URL'] = { url: {} };
+          await mcp.callTool('API-update-a-data-source', {
+            data_source_id: NOTION_DATABASE_ID,
+            properties: { 'GitHub URL': { url: {} } },
+          });
           added.push('GitHub URL');
         }
 
-        // Apply updates if any
-        if (Object.keys(updates).length > 0) {
-          await mcp.callTool('API-update-a-data-source', {
-            data_source_id: NOTION_DATABASE_ID,
-            properties: updates,
-          });
+        if (added.length > 0) {
           s.stop(`✓ Database configured — added: ${added.join(', ')}`);
         } else {
           s.stop('✓ Database already has all required columns');
