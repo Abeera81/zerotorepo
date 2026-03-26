@@ -208,23 +208,43 @@ const ORCHESTRATOR_SYSTEM_PROMPT = `You are an AI agent orchestrating the ZeroTo
 
 You have access to tools that interact with Notion (via MCP), GitHub, Brave Search, and Groq AI. Call them in the right order to build the complete project.
 
-WORKFLOW:
-1. First, update Notion status to "Researching"
-2. Run deep_search to gather competitive intelligence
-3. Run analyze_market on the search results
-4. Generate a creative startup name based on the research
-5. Save the research to Notion
-6. Update status to "Scaffolding", then create the GitHub repo
-7. Set the GitHub URL on the Notion page
-8. Create roadmap issues on the repo
-9. Update status to "Generating Brief", then write the investor brief
-10. Finalize the idea (mark as Ready, uncheck trigger)
+WORKFLOW (follow this exact order):
+1. update_notion_status → "Researching"
+2. deep_search
+3. analyze_market
+4. generate_startup_name
+5. save_research_to_notion
+6. update_notion_status → "Scaffolding"
+7. create_github_repo
+8. set_github_url
+9. create_roadmap_issues
+10. update_notion_status → "Generating Brief"
+11. write_investor_brief
+12. finalize_idea
 
-IMPORTANT:
-- Call ONE tool at a time and wait for the result before deciding the next step.
-- Pass data between steps (e.g., search results → analyze_market, research → create_github_repo).
-- If a tool fails, try to recover or skip gracefully.
-- Use the actual data returned from each tool call — don't fabricate results.`;
+RULES:
+- Call ONE tool at a time. Wait for the result.
+- Data flows automatically between tools — just call the next tool in sequence.
+- If a tool fails, skip it and continue with the next step.
+- Keep responses very short. Just call the next tool.
+- After finalize_idea, respond with "Pipeline complete." and stop.`;
+
+// Keep message history bounded to avoid token explosion
+function trimMessages(messages, maxTail) {
+  if (messages.length <= maxTail + 2) return messages;
+  // Always keep: system prompt (0) + user prompt (1) + last N messages
+  const head = messages.slice(0, 2);
+  const tail = messages.slice(-maxTail);
+  // Ensure we don't break tool_call / tool result pairs
+  // If tail starts with a 'tool' message, include the assistant message before it
+  if (tail[0]?.role === 'tool') {
+    const idx = messages.length - maxTail - 1;
+    if (idx >= 2 && messages[idx]?.role === 'assistant') {
+      return [...head, messages[idx], ...tail];
+    }
+  }
+  return [...head, ...tail];
+}
 
 /**
  * Run the LLM-driven agent loop.
@@ -247,13 +267,17 @@ async function runAgent(ideaName, description, notionPageId, { onPhaseStart, onP
   while (iterations < MAX_ITERATIONS) {
     iterations++;
 
+    // Trim message history to control token usage:
+    // Keep system prompt + user prompt + last 4 exchanges (8 messages)
+    const trimmedMessages = trimMessages(messages, 10);
+
     const completion = await groq.chat.completions.create({
       model: config.groq.model,
-      temperature: 0.1,
-      max_tokens: 4096,
+      temperature: 0,
+      max_tokens: 1024,
       tools,
       tool_choice: 'auto',
-      messages,
+      messages: trimmedMessages,
     });
 
     const choice = completion.choices[0];
@@ -352,28 +376,30 @@ async function runAgent(ideaName, description, notionPageId, { onPhaseStart, onP
         result = { error: err.message };
       }
 
-      // Send result back to LLM (truncate large payloads)
-      let resultStr = JSON.stringify(result);
-      if (resultStr.length > 3000) {
-        // Summarize large results to stay within token limits
-        const summary = {
-          success: !result.error,
-          keys: Object.keys(result),
-          ...(result.repoUrl && { repoUrl: result.repoUrl }),
-          ...(result.name && { name: result.name }),
-          ...(result.totalResults !== undefined && { totalResults: result.totalResults }),
-          ...(result.competitors && { competitorCount: result.competitors.length }),
-          ...(result.gaps && { gapCount: result.gaps.length }),
-          ...(result.tasks && { taskCount: result.tasks.length }),
-          ...(result.issueUrls && { issueCount: result.issueUrls.length }),
-        };
-        resultStr = JSON.stringify(summary);
-      }
+      // Send result back to LLM (summarize to save tokens)
+      const summary = {
+        success: !result.error,
+        ...(result.error && { error: result.error }),
+        ...(result.repoUrl && { repoUrl: result.repoUrl }),
+        ...(result.owner && { owner: result.owner }),
+        ...(result.repo && { repo: result.repo }),
+        ...(result.name && { name: result.name }),
+        ...(result.tagline && { tagline: result.tagline }),
+        ...(result.totalResults !== undefined && { totalResults: result.totalResults }),
+        ...(result.competitors && { competitorCount: result.competitors.length }),
+        ...(result.gaps && { gapCount: result.gaps.length }),
+        ...(result.tasks && { taskCount: result.tasks.length }),
+        ...(result.issueUrls && { issueCount: result.issueUrls.length }),
+        ...(result.updated && { updated: true }),
+        ...(result.saved && { saved: true }),
+        ...(result.set && { set: true }),
+        ...(result.finalized && { finalized: true }),
+      };
 
       messages.push({
         role: 'tool',
         tool_call_id: toolCall.id,
-        content: resultStr,
+        content: JSON.stringify(summary),
       });
     }
   }

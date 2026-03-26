@@ -28,7 +28,7 @@ async function generateRoadmap(projectName, description, gapData) {
   const completion = await groq.chat.completions.create({
     model: config.groq.model,
     temperature: 0.4,
-    max_tokens: 3000,
+    max_tokens: 2000,
     response_format: { type: 'json_object' },
     messages: [
       { role: 'system', content: roadmapPrompt },

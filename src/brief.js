@@ -36,7 +36,7 @@ async function synthesizeBrief(projectName, startupName, description, gapData, r
   const completion = await groq.chat.completions.create({
     model: config.groq.model,
     temperature: 0.6,
-    max_tokens: 4000,
+    max_tokens: 2500,
     messages: [
       { role: 'system', content: briefPrompt },
       {

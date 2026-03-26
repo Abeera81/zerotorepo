@@ -156,7 +156,7 @@ async function analyzeGaps(projectName, description, searchSets) {
   const completion = await groq.chat.completions.create({
     model: config.groq.model,
     temperature: 0.3,
-    max_tokens: 4000,
+    max_tokens: 2500,
     response_format: { type: 'json_object' },
     messages: [
       { role: 'system', content: gapAnalysisPrompt },
