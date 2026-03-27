@@ -9,7 +9,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { intro, outro, text, spinner, log, note, isCancel, cancel } = require('@clack/prompts');
+const { intro, outro, text, password, spinner, log, note, isCancel, cancel } = require('@clack/prompts');
 
 const ENV_PATH = path.join(__dirname, '..', '.env');
 
@@ -145,9 +145,11 @@ async function main() {
     '1/4 · Notion API Key',
   );
 
-  const notionKey = await text({
-    message: 'Paste your Notion integration secret:',
-    placeholder: existingEnv.NOTION_API_KEY ? `(current: ${masked(existingEnv.NOTION_API_KEY)})` : 'ntn_xxxx...',
+  const notionKey = await password({
+    message: existingEnv.NOTION_API_KEY
+      ? `Paste your Notion integration secret (press Enter to keep current: ${masked(existingEnv.NOTION_API_KEY)}):`
+      : 'Paste your Notion integration secret:',
+    mask: '*',
     validate: (v) => {
       if (!v && existingEnv.NOTION_API_KEY) return; // keep current
       if (!v) return 'Required';
@@ -165,9 +167,11 @@ async function main() {
     '2/4 · Groq API Key',
   );
 
-  const groqKey = await text({
-    message: 'Paste your Groq API key:',
-    placeholder: existingEnv.GROQ_API_KEY ? `(current: ${masked(existingEnv.GROQ_API_KEY)})` : 'gsk_xxxx...',
+  const groqKey = await password({
+    message: existingEnv.GROQ_API_KEY
+      ? `Paste your Groq API key (press Enter to keep current: ${masked(existingEnv.GROQ_API_KEY)}):`
+      : 'Paste your Groq API key:',
+    mask: '*',
     validate: (v) => {
       if (!v && existingEnv.GROQ_API_KEY) return;
       if (!v) return 'Required';
@@ -185,9 +189,11 @@ async function main() {
     '3/4 · Brave Search API Key',
   );
 
-  const braveKey = await text({
-    message: 'Paste your Brave Search API key:',
-    placeholder: existingEnv.BRAVE_API_KEY ? `(current: ${masked(existingEnv.BRAVE_API_KEY)})` : 'BSA_xxxx...',
+  const braveKey = await password({
+    message: existingEnv.BRAVE_API_KEY
+      ? `Paste your Brave Search API key (press Enter to keep current: ${masked(existingEnv.BRAVE_API_KEY)}):`
+      : 'Paste your Brave Search API key:',
+    mask: '*',
     validate: (v) => {
       if (!v && existingEnv.BRAVE_API_KEY) return;
       if (!v) return 'Required';
@@ -205,9 +211,11 @@ async function main() {
     '4/4 · GitHub Personal Access Token',
   );
 
-  const ghToken = await text({
-    message: 'Paste your GitHub token:',
-    placeholder: existingEnv.GITHUB_TOKEN ? `(current: ${masked(existingEnv.GITHUB_TOKEN)})` : 'ghp_xxxx...',
+  const ghToken = await password({
+    message: existingEnv.GITHUB_TOKEN
+      ? `Paste your GitHub token (press Enter to keep current: ${masked(existingEnv.GITHUB_TOKEN)}):`
+      : 'Paste your GitHub token:',
+    mask: '*',
     validate: (v) => {
       if (!v && existingEnv.GITHUB_TOKEN) return;
       if (!v) return 'Required';
