@@ -237,26 +237,11 @@ async function disconnect() {
   await mcpClient.disconnect();
 }
 
-/**
- * Update the Description property on a Notion page with a summary string.
- */
-async function updateDescription(pageId, text) {
-  await mcpClient.callTool('API-patch-page', {
-    page_id: pageId,
-    properties: {
-      Description: {
-        rich_text: [{ type: 'text', text: { content: text.slice(0, 2000) } }],
-      },
-    },
-  });
-}
-
 module.exports = {
   pollForTrigger,
   extractTitle,
   extractDescription,
   updateStatus,
-  updateDescription,
   writeSubPage,
   setGitHubUrl,
   resetTrigger,
