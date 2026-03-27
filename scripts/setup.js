@@ -449,6 +449,29 @@ async function main() {
   fs.writeFileSync(ENV_PATH, envContent);
   log.success('.env written successfully');
 
+  // ── Write mcp.json ────────────────────────────────────────────────────
+
+  const mcpConfig = {
+    mcpServers: {
+      zerotorepo: {
+        command: 'node',
+        args: ['src/mcp-server.js'],
+        env: {
+          NOTION_API_KEY,
+          NOTION_DATABASE_ID,
+          GROQ_API_KEY,
+          BRAVE_API_KEY,
+          GITHUB_TOKEN,
+          GITHUB_OWNER,
+        },
+      },
+    },
+  };
+
+  const MCP_PATH = path.join(__dirname, '..', 'mcp.json');
+  fs.writeFileSync(MCP_PATH, JSON.stringify(mcpConfig, null, 2) + '\n');
+  log.success('mcp.json updated — VS Code MCP ready');
+
   // ── Summary ─────────────────────────────────────────────────────────────
 
   const allGood = notionResult.ok && groqResult.ok && braveResult.ok && ghResult.ok && NOTION_DATABASE_ID;
