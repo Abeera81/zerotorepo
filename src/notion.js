@@ -251,6 +251,33 @@ async function updateDescription(pageId, text) {
   });
 }
 
+/**
+ * Create a new page in the Notion database.
+ * Returns the page object in the same shape that processIdea() expects.
+ */
+async function createPage(ideaName, description) {
+  const page = await mcpClient.callTool('API-post-page', {
+    parent: { database_id: config.notion.databaseId },
+    properties: {
+      Name: {
+        title: [{ type: 'text', text: { content: ideaName } }],
+      },
+      Description: {
+        rich_text: description
+          ? [{ type: 'text', text: { content: description.slice(0, 2000) } }]
+          : [],
+      },
+      Status: {
+        status: { name: 'Idea' },
+      },
+      Trigger: {
+        checkbox: true,
+      },
+    },
+  });
+  return page;
+}
+
 module.exports = {
   pollForTrigger,
   extractTitle,
@@ -261,5 +288,6 @@ module.exports = {
   setGitHubUrl,
   resetTrigger,
   subPageExists,
+  createPage,
   disconnect,
 };

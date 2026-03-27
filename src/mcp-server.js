@@ -29,20 +29,30 @@ server.tool(
   },
   async ({ idea_name, description }) => {
     try {
-      const mockPage = {
-        id: 'mcp-direct',
-        properties: {
-          Name: { title: [{ plain_text: idea_name }] },
-          Description: { rich_text: description ? [{ plain_text: description }] : [] },
-          Status: { status: { name: 'Idea' } },
-          Trigger: { checkbox: true },
-          'GitHub URL': { url: null },
-        },
-      };
+      let page;
+      const isMock = process.env.MOCK === 'true';
+
+      if (isMock) {
+        // Mock mode — use a fake page object
+        page = {
+          id: 'mock',
+          properties: {
+            Name: { title: [{ plain_text: idea_name }] },
+            Description: { rich_text: description ? [{ plain_text: description }] : [] },
+            Status: { status: { name: 'Idea' } },
+            Trigger: { checkbox: true },
+            'GitHub URL': { url: null },
+          },
+        };
+      } else {
+        // Create a real page in the Notion database
+        page = await notion.createPage(idea_name, description || '');
+        console.error(`[ZeroToRepo] Created Notion page: ${page.id}`);
+      }
 
       const TIMEOUT_MS = 5 * 60 * 1000;
-      const work = processIdea(mockPage, {
-        useMock: process.env.MOCK === 'true',
+      const work = processIdea(page, {
+        useMock: isMock,
         onPhaseStart: (phase) => console.error(`[ZeroToRepo] Starting ${phase}...`),
         onPhaseEnd: (phase, status) => console.error(`[ZeroToRepo] ${phase}: ${status}`),
       });
