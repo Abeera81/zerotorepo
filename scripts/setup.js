@@ -9,7 +9,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { intro, outro, text, password, spinner, log, note, isCancel, cancel } = require('@clack/prompts');
+const { intro, outro, text, password, select, spinner, log, note, isCancel, cancel } = require('@clack/prompts');
 
 const ENV_PATH = path.join(__dirname, '..', '.env');
 
@@ -449,28 +449,69 @@ async function main() {
   fs.writeFileSync(ENV_PATH, envContent);
   log.success('.env written successfully');
 
-  // ── Write mcp.json ────────────────────────────────────────────────────
+  // ── Write MCP server config ─────────────────────────────────────────────
 
-  const mcpConfig = {
-    mcpServers: {
-      zerotorepo: {
-        command: 'node',
-        args: ['src/mcp-server.js'],
-        env: {
-          NOTION_API_KEY,
-          NOTION_DATABASE_ID,
-          GROQ_API_KEY,
-          BRAVE_API_KEY,
-          GITHUB_TOKEN,
-          GITHUB_OWNER,
-        },
-      },
-    },
+  const mcpChoice = await select({
+    message: 'Use ZeroToRepo as an MCP server?',
+    options: [
+      { value: 'vscode', label: 'VS Code (Recommended)' },
+      { value: 'claude', label: 'Claude Desktop' },
+      { value: 'both', label: 'Both' },
+      { value: 'skip', label: 'Skip' },
+    ],
+  });
+  if (isCancel(mcpChoice)) bail();
+
+  const mcpEnv = {
+    NOTION_API_KEY,
+    NOTION_DATABASE_ID,
+    GROQ_API_KEY,
+    BRAVE_API_KEY,
+    GITHUB_TOKEN,
+    GITHUB_OWNER,
   };
 
-  const MCP_PATH = path.join(__dirname, '..', 'mcp.json');
-  fs.writeFileSync(MCP_PATH, JSON.stringify(mcpConfig, null, 2) + '\n');
-  log.success('mcp.json updated — VS Code MCP ready');
+  if (mcpChoice === 'vscode' || mcpChoice === 'both') {
+    const vscodeDir = path.join(__dirname, '..', '.vscode');
+    fs.mkdirSync(vscodeDir, { recursive: true });
+    const vscodeConfig = {
+      servers: {
+        zerotorepo: {
+          command: 'node',
+          args: ['src/mcp-server.js'],
+          env: mcpEnv,
+        },
+      },
+    };
+    fs.writeFileSync(
+      path.join(vscodeDir, 'mcp.json'),
+      JSON.stringify(vscodeConfig, null, 2) + '\n',
+    );
+  }
+
+  if (mcpChoice === 'claude' || mcpChoice === 'both') {
+    const claudeConfig = {
+      mcpServers: {
+        zerotorepo: {
+          command: 'node',
+          args: ['src/mcp-server.js'],
+          env: mcpEnv,
+        },
+      },
+    };
+    fs.writeFileSync(
+      path.join(__dirname, '..', 'mcp.json'),
+      JSON.stringify(claudeConfig, null, 2) + '\n',
+    );
+  }
+
+  if (mcpChoice === 'skip') {
+    log.info('Skipped MCP setup');
+  } else {
+    const target = mcpChoice === 'both' ? 'VS Code + Claude Desktop' :
+      mcpChoice === 'vscode' ? 'VS Code' : 'Claude Desktop';
+    log.success(`MCP config written — ${target} ready`);
+  }
 
   // ── Summary ─────────────────────────────────────────────────────────────
 

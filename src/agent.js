@@ -166,6 +166,7 @@ function buildToolsForLLM() {
       properties: {
         idea_name: { type: 'string' },
         description: { type: 'string' },
+        search_data: { type: 'object', description: 'Search results from deep_search (injected automatically)' },
       },
       required: ['idea_name'],
     },
@@ -182,6 +183,8 @@ function buildToolsForLLM() {
       properties: {
         page_id: { type: 'string' },
         project_name: { type: 'string' },
+        startup_name: { type: 'object', description: 'Startup name data (injected automatically)' },
+        research: { type: 'object', description: 'Research data (injected automatically)' },
       },
       required: ['page_id', 'project_name'],
     },
@@ -190,6 +193,7 @@ function buildToolsForLLM() {
       properties: {
         project_name: { type: 'string' },
         description: { type: 'string' },
+        research: { type: 'object', description: 'Research data with gaps (injected automatically)' },
       },
       required: ['project_name'],
     },
@@ -206,6 +210,8 @@ function buildToolsForLLM() {
       properties: {
         project_name: { type: 'string', description: 'Name for the GitHub repository' },
         description: { type: 'string' },
+        research: { type: 'object', description: 'Research data (injected automatically)' },
+        startup_name: { type: 'object', description: 'Startup name data (injected automatically)' },
       },
       required: ['project_name'],
     },
@@ -222,6 +228,7 @@ function buildToolsForLLM() {
       properties: {
         repo_owner: { type: 'string', description: 'GitHub repo owner' },
         repo_name: { type: 'string', description: 'GitHub repo name' },
+        tasks: { type: 'array', description: 'Roadmap tasks to create as issues (injected automatically)' },
       },
       required: ['repo_owner', 'repo_name'],
     },
@@ -231,6 +238,10 @@ function buildToolsForLLM() {
         project_name: { type: 'string' },
         description: { type: 'string' },
         notion_page_id: { type: 'string' },
+        startup_name: { type: 'object', description: 'Startup name data (injected automatically)' },
+        research: { type: 'object', description: 'Research data (injected automatically)' },
+        strategy: { type: 'object', description: 'Strategy data (injected automatically)' },
+        repo_url: { type: 'string', description: 'GitHub repo URL (injected automatically)' },
       },
       required: ['project_name', 'notion_page_id'],
     },
@@ -314,8 +325,20 @@ function trimMessages(messages, maxTail) {
 /**
  * Run the LLM-driven agent loop.
  * The LLM decides which tools to call and in what order.
+ * Wrapped in a 5-minute timeout to prevent MCP client disconnection.
  */
-async function runAgent(ideaName, description, notionPageId, { onPhaseStart, onPhaseEnd, useMock = false } = {}) {
+async function runAgent(ideaName, description, notionPageId, opts = {}) {
+  const TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+
+  const agentWork = _runAgentLoop(ideaName, description, notionPageId, opts);
+  const timeout = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error('Agent timed out after 5 minutes')), TIMEOUT_MS),
+  );
+
+  return Promise.race([agentWork, timeout]);
+}
+
+async function _runAgentLoop(ideaName, description, notionPageId, { onPhaseStart, onPhaseEnd, useMock = false } = {}) {
   const tools = buildToolsForLLM();
   const messages = [
     { role: 'system', content: ORCHESTRATOR_SYSTEM_PROMPT },
@@ -480,6 +503,26 @@ async function runAgent(ideaName, description, notionPageId, { onPhaseStart, onP
         tool_call_id: toolCall.id,
         content: JSON.stringify(summary),
       });
+    }
+  }
+
+  // Update the main Notion page Description with a summary
+  if (notionPageId !== 'mock' && !useMock) {
+    try {
+      const summaryParts = [];
+      if (context.startupName?.name) summaryParts.push(`🚀 ${context.startupName.name}`);
+      if (context.startupName?.tagline) summaryParts.push(context.startupName.tagline);
+      if (context.repo?.repoUrl) summaryParts.push(`📂 ${context.repo.repoUrl}`);
+      if (context.issueUrls?.length) summaryParts.push(`📋 ${context.issueUrls.length} issues created`);
+      if (context.research?.competitors?.length) {
+        const topGap = (context.research.gaps || [])[0];
+        if (topGap) summaryParts.push(`🎯 Gap: ${topGap.gap}`);
+      }
+      if (summaryParts.length > 0) {
+        await notion.updateDescription(notionPageId, summaryParts.join(' • '));
+      }
+    } catch (err) {
+      console.warn(`  [Agent] Could not update Description: ${err.message}`);
     }
   }
 

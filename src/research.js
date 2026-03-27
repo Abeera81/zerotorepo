@@ -174,8 +174,10 @@ async function analyzeGaps(projectName, description, searchSets) {
   if (!parsed.gaps || !Array.isArray(parsed.gaps)) {
     throw new Error('Groq gap analysis response missing "gaps" array');
   }
+  if (!parsed.competitors || !Array.isArray(parsed.competitors) || parsed.competitors.length === 0) {
+    throw new Error('Groq gap analysis returned zero competitors — cannot proceed with empty competitor data');
+  }
   // Ensure expected fields exist with defaults
-  parsed.competitors = parsed.competitors || [];
   parsed.marketInsights = parsed.marketInsights || {};
   parsed.techRecommendations = parsed.techRecommendations || [];
   return parsed;

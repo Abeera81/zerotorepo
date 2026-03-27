@@ -29,7 +29,6 @@ server.tool(
   },
   async ({ idea_name, description }) => {
     try {
-      // Search Notion for the idea or create a mock page object
       const mockPage = {
         id: 'mcp-direct',
         properties: {
@@ -41,12 +40,17 @@ server.tool(
         },
       };
 
-      // Run the full pipeline
-      const result = await processIdea(mockPage, {
-        useMock: false,
+      const TIMEOUT_MS = 5 * 60 * 1000;
+      const work = processIdea(mockPage, {
+        useMock: process.env.MOCK === 'true',
         onPhaseStart: (phase) => console.error(`[ZeroToRepo] Starting ${phase}...`),
         onPhaseEnd: (phase, status) => console.error(`[ZeroToRepo] ${phase}: ${status}`),
       });
+      const timeout = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Pipeline timed out after 5 minutes')), TIMEOUT_MS),
+      );
+
+      const result = await Promise.race([work, timeout]);
 
       return {
         content: [{
@@ -220,7 +224,10 @@ server.tool(
         null,
         description || '',
         gapData,
-        roadmapData
+        roadmapData,
+        null,
+        [],
+        new Date().toISOString()
       );
       return {
         content: [{ type: 'text', text: briefContent }],
