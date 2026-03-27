@@ -257,7 +257,7 @@ async function updateDescription(pageId, text) {
  */
 async function createPage(ideaName, description) {
   const page = await mcpClient.callTool('API-post-page', {
-    parent: {  type: database_id ,database_id: config.notion.databaseId },
+    parent: {  type: 'database_id' ,database_id: config.notion.databaseId },
     properties: {
       Name: {
         title: [{ type: 'text', text: { content: ideaName } }],
